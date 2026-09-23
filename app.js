@@ -138,14 +138,17 @@ async function parseDxf(file){
     const props={_entityType:String(entity.type||'').toUpperCase(),_label:entity.text||entity.name||entity.type||''};
     groups.get(name).push({type:'Feature',geometry:geom,properties:props});
   }
-  let total=0,first=null;
+  let total=0,fitBounds=null,firstLayerIndex=importedLayers.length;
   cadLayers.querySelector('.message')?.remove();
   for(const [name,features] of groups){
     const geo=L.geoJSON(features,{style:styleForFeature,pointToLayer:(f,ll)=>L.circleMarker(ll,styleForFeature(f)),onEachFeature:(f,l)=>{const s=f.properties?._label;if(s)l.bindTooltip(String(s).slice(0,200))}});
-    addLayerEntry(`${file.name} · ${name}`,geo,features.length);geo.addTo(map);total+=features.length;if(!first)first=geo;
+    addLayerEntry(`${file.name} · ${name}`,geo,features.length);geo.addTo(map);total+=features.length;
+    if(/^(HAT_|DIREK_|NODE_|TRAFO_|KOFRE_)/i.test(name)){const bounds=geo.getBounds();if(bounds.isValid())fitBounds=fitBounds?fitBounds.extend(bounds):bounds}
   }
   if(!total)throw new Error('DXF içinde haritada gösterilebilen 2B çizim bulunamadı.');
-  zoomTo(first);return total;
+  if(fitBounds?.isValid())map.fitBounds(fitBounds.pad(.08),{maxZoom:17});
+  else{const first=importedLayers[firstLayerIndex];if(first)zoomTo(first.layer)}
+  return total;
 }
 async function parseKml(file){
   let xmlText;
