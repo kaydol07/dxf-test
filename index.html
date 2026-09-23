@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#102b22">
+  <title>ersin.kucukcamur | DXF Görüntüleyici</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <main id="map" aria-label="Harita"></main>
+  <div class="brand">ersin.kucukcamur</div>
+  <button class="layer-toggle" id="layerToggle" aria-label="Harita katmanlarını aç" title="Harita katmanları"><span class="layers-icon">▱</span></button>
+  <section class="layers-panel panel" id="layersPanel" aria-label="Harita katmanları" hidden>
+    <div class="panel-heading">HARİTA KATMANI</div>
+    <label><input type="radio" name="base" value="satellite" checked> ESRI Uydu</label>
+    <label><input type="radio" name="base" value="street"> OpenStreetMap</label>
+    <label><input type="radio" name="base" value="dark"> CartoDB Koyu</label>
+    <label><input type="radio" name="base" value="light"> CartoDB Açık</label>
+    <label class="checkbox-row"><input type="checkbox" id="labelsToggle" checked> 📍 Yer İsimleri</label>
+  </section>
+  <section class="drawer panel" id="projectPanel" hidden>
+    <button class="close" aria-label="Kapat">×</button>
+    <div class="panel-heading">📁 PROJE</div>
+    <button class="wide-button danger" id="clearMap">🗑️ HARİTAYI TEMİZLE</button>
+    <button class="wide-button primary" id="uploadButton">📂 DOSYA YÜKLE (DXF / KMZ / KML)</button>
+    <button class="wide-button" id="loadDisk">☁️ DİSKTEN YÜKLE</button>
+    <input type="file" id="fileInput" accept=".dxf,.kmz,.kml" multiple hidden>
+    <div class="section-label">DATUM &amp; DOM</div>
+    <div class="segmented"><button class="selected" data-datum="ITRF (GRS80)">ITRF (GRS80)</button><button data-datum="ED50 (HAYFORD)">ED50 (HAYFORD)</button></div>
+    <div class="dom-label">DOM</div>
+    <div class="dom-grid">27 30 33 36 39 42 45</div>
+    <div class="section-label">TÜM KATMANLAR</div>
+    <label class="checkbox-row"><input type="checkbox" id="allLayers" checked> Tüm katmanlar açık</label>
+    <div class="loaded-files" id="loadedFiles">Henüz dosya yüklenmedi</div>
+  </section>
+  <section class="drawer panel" id="locationPanel" hidden>
+    <button class="close" aria-label="Kapat">×</button><div class="panel-heading">📍 KONUM</div>
+    <p>Canlı konum takibini başlat. Konumun hareket ettikçe harita güncellenir.</p><button class="wide-button primary" id="locateButton">CANLI TAKİBİ BAŞLAT</button><div class="message" id="locationStatus" role="status">Takip kapalı</div>
+  </section>
+  <section class="drawer panel" id="addressPanel" hidden>
+    <button class="close" aria-label="Kapat">×</button><div class="panel-heading">↗️ ADRESE GİT</div>
+    <form id="addressForm"><label for="addressInput">Adres veya yer ara</label><div class="input-row"><input id="addressInput" placeholder="Örn. Ankara, Türkiye" required><button class="primary" type="submit">ARA</button></div></form><div class="message" id="addressMessage"></div>
+  </section>
+  <section class="drawer panel" id="parcelPanel" hidden>
+    <button class="close" aria-label="Kapat">×</button><div class="panel-heading">▱ PARSEL</div>
+    <p>Haritada bir noktaya tıklayarak o konumdaki parseli sorgula.</p>
+    <button class="wide-button primary" id="parcelPickButton">HARİTADAN PARSEL SEÇ</button>
+    <div class="message" id="parcelMessage" role="status">Parsel sorgusu kapalı.</div>
+    <div class="parcel-result" id="parcelResult" hidden></div>
+    <a class="official-link" href="https://parselsorgu.tkgm.gov.tr/" target="_blank" rel="noopener noreferrer">Resmî TKGM Parsel Sorgu’yu aç ↗</a>
+  </section>
+  <nav class="toolbar" aria-label="Harita araçları">
+    <button data-panel="projectPanel"><span class="tool-icon folder">📁</span><span>PROJE</span></button>
+    <button data-panel="locationPanel"><span class="tool-icon pin">📍</span><span>KONUM</span></button>
+    <button data-panel="addressPanel"><span class="tool-icon go">↗</span><span>ADRESE GİT</span></button>
+    <button data-panel="parcelPanel"><span class="tool-icon parcel">▱</span><span>PARSEL</span></button>
+    <button id="printButton"><span class="tool-icon print">▣</span><span>ÇIKTI AL</span></button>
+  </nav>
+  <div class="toast" id="toast" role="status"></div>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <script src="./app.js"></script>
+</body>
+</html>
