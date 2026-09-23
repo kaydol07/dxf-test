@@ -1,16 +1,17 @@
-# DXF Harita Görüntüleyici — test sürümü
+# DXF Harita Görüntüleyici — test yayını
 
-GitHub Pages üzerinde yayınlanmak üzere hazırlanan statik harita arayüzü.
+Statik GitHub Pages prototipi: [https://kaydol07.github.io/dxf-test/](https://kaydol07.github.io/dxf-test/)
 
 ## Özellikler
 
-- Uydu, sokak, koyu ve açık harita altlıkları
-- Tarayıcı izniyle canlı konum takibi
-- Haritadan seçilen konum için TKGM parsel sorgusu denemesi
-- Adres arama ve temel harita araçları
+- Harita altlıkları ve canlı tarayıcı konumu
+- Adres arama
+- Haritadan seçilen koordinat için TKGM parsel API sorgusu (tarayıcı CORS erişimi izin verdiği ölçüde); resmi TKGM sayfasına yedek bağlantı
+- DXF, KML ve KMZ dosyalarını istemci tarafında haritada açma ve katmanları açıp kapatma
+- DXF için DOM (merkez meridyen) ve datum seçimi
 
-## Sınırlamalar
+DXF dosyası tarayıcı belleğinde okunur ve sunucuya gönderilmez. DXF’in doğru yere oturması için çizimin koordinat sistemi, datum ve DOM bilgileri kullanıcı tarafından doğru seçilmelidir. Bu ilk sürüm 2B çizgiler, poligonlar, çemberler, noktalar, yazılar ve blokların ekleme noktalarını gösterir; bütün CAD nesne tiplerini ve blok içi geometrileri desteklemez.
 
-DXF/KMZ/KML dosyalarını seçme arayüzü mevcut; çizim verisini haritada gösteren dönüştürücü henüz eklenmedi. TKGM servisine doğrudan tarayıcı erişimi yayın ortamında doğrulanmalı; CORS veya servis kısıtı çıkarsa arka uç desteği gerekir.
+TKGM API erişimi tarayıcıdan CORS/servis kısıtına takılırsa, statik site inline parsel sonucu gösteremez; bu durumda resmi TKGM sorgu sayfasını kullanın. Parsel haritası hukuki/ölçme belgesi yerine geçmez.
 
-Bu proje için planlanan test adresi: https://kaydol07.github.io/dxf-test/
+Harita tabanları ve koordinat dönüştürücü için internet bağlantısı gerekir. Sayfa HTTPS ile yayımlanmalıdır.
