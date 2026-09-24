@@ -176,3 +176,18 @@ document.getElementById('allLayers').addEventListener('change',e=>{for(const ite
 document.getElementById('clearMap').addEventListener('click',()=>{for(const item of importedLayers){map.removeLayer(item.layer);item.row.remove()}importedLayers.length=0;map.eachLayer(l=>{if(l!==bases.satellite&&l!==bases.street&&l!==bases.dark&&l!==bases.light&&l!==labelLayer&&l!==locationMarker&&l!==locationAccuracy)map.removeLayer(l)});if(parcelRequest)parcelRequest.abort();parcelLayer=null;parcelResult.hidden=true;setParcelPick(false);cadLayers.innerHTML='<div class="message">DXF yüklendiğinde katmanlar burada görünür.</div>';loadedFiles.textContent='Henüz dosya yüklenmedi';document.getElementById('allLayers').checked=true;showToast('Harita üzerindeki işaretler temizlendi.')});
 document.querySelectorAll('[data-datum]').forEach(b=>b.addEventListener('click',()=>showToast('Koordinat sistemi: '+b.dataset.datum)));
 document.getElementById('printButton').addEventListener('click',()=>window.print());
+
+
+// Infer the ED50 / TM30 grid used by the Kas-Gokceoren drawing before projecting it.
+const parseDxfWithCrsDetection=parseDxf;
+parseDxf=async function(file){
+  const text=await file.arrayBuffer().then(b=>new TextDecoder("windows-1254").decode(b));
+  const evidence=(file.name+" "+text).toLocaleUpperCase("tr-TR");
+  if(/\bED\s*[- ]?50\b/.test(evidence)&&/ANTALYA|KAŞ|GÖKÇEÖREN|YENİKÖY/.test(evidence)){
+    document.querySelector("[data-datum=\"ED50 (HAYFORD)\"]").click();
+    document.querySelectorAll(".dom-grid button").forEach(b=>b.classList.toggle("selected",b.textContent==="30"));
+    const status=document.getElementById("crsStatus");
+    if(status)status.textContent="Dosyadan algılandı: ED50 / TM30 (EPSG:2320), Kaş–Gökçeören.";
+  }
+  return parseDxfWithCrsDetection(file);
+};
