@@ -1,5 +1,5 @@
 const map=L.map('map',{zoomControl:false,preferCanvas:true}).setView([39.05,35.35],5);
-L.control.zoom({position:'bottomright'}).addTo(map);
+const zoomControl=L.control.zoom({position:'bottomright'}).addTo(map);
 const bases={
   satellite:L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{attribution:'Tiles © Esri',maxZoom:19}),
   street:L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'© OpenStreetMap contributors',maxZoom:19}),
@@ -22,7 +22,7 @@ function disableGoogleMap(){
   googleMap=null;googleMapBase.replaceChildren();googleMapBase.hidden=true;
   document.body.classList.remove('google-map-active');
   document.getElementById('labelsToggle').disabled=false;
-  map.zoomControl.getContainer().hidden=false;
+  zoomControl.getContainer().hidden=false;
   map.attributionControl.addTo(map);
 }
 function setStandardBase(name){
@@ -61,7 +61,7 @@ async function enableGoogleSatellite(){
     setStandardBase('satellite');map.removeLayer(bases.satellite);
     if(map.hasLayer(labelLayer))map.removeLayer(labelLayer);
     document.getElementById('labelsToggle').disabled=true;
-    map.attributionControl.remove();map.zoomControl.getContainer().hidden=true;
+    map.attributionControl.remove();zoomControl.getContainer().hidden=true;
     googleMapBase.hidden=false;document.body.classList.add('google-map-active');
     googleMap=new google.maps.Map(googleMapBase,{center:map.getCenter(),zoom:map.getZoom(),mapTypeId:'satellite',disableDefaultUI:true,gestureHandling:'none',keyboardShortcuts:false,clickableIcons:false});
     googleMapSync=()=>googleMap?.moveCamera({center:map.getCenter(),zoom:map.getZoom()});
