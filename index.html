@@ -38,10 +38,12 @@
     <div class="message file-privacy">Seçtiğin çizimler tarayıcında işlenir; dosya sunucuya yüklenmez.</div>
     <div class="section-label">DXF KATMANLARI</div>
     <div class="cad-layers" id="cadLayers"><div class="message">DXF yüklendiğinde katmanlar burada görünür.</div></div>
+    <label class="checkbox-row"><input type="checkbox" id="cadTextToggle" checked> CAD yazıları (yakınlaştırınca)</label>
     <div class="section-label">DATUM &amp; DOM</div>
     <div class="segmented"><button class="selected" data-datum="ITRF (GRS80)">ITRF (GRS80)</button><button data-datum="ED50 (HAYFORD)">ED50 (HAYFORD)</button></div>
     <div class="dom-label">DOM</div>
     <div class="dom-grid">27 30 33 36 39 42 45</div>
+    <div class="message" id="crsStatus" role="status">DXF datum ve DOM bilgisi taranıyor.</div>
     <div class="section-label">TÜM KATMANLAR</div>
     <label class="checkbox-row"><input type="checkbox" id="allLayers" checked> Tüm katmanlar açık</label>
     <div class="loaded-files" id="loadedFiles">Henüz dosya yüklenmedi</div>
@@ -74,6 +76,6 @@
   <script src="https://cdn.jsdelivr.net/npm/proj4@2.15.0/dist/proj4.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mapbox/togeojson@0.16.2/togeojson.js"></script>
-  <script src="./app.js?v=6"></script>
+  <script src="./app.js?v=8"></script>
 </body>
 </html>
