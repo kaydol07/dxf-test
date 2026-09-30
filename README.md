@@ -4,7 +4,8 @@ Statik GitHub Pages prototipi: [https://kaydol07.github.io/dxf-test/](https://ka
 
 ## Özellikler
 
-- Harita altlıkları ve canlı tarayıcı konumu
+- Esri, OpenStreetMap ve CartoDB harita altlıkları; oturumluk Google Uydu seçeneği
+- Canlı tarayıcı konumu
 - Adres arama
 - Haritadan seçilen koordinat için TKGM parsel API sorgusu (tarayıcı CORS erişimi izin verdiği ölçüde); resmi TKGM sayfasına yedek bağlantı
 - DXF, KML ve KMZ dosyalarını istemci tarafında haritada açma ve katmanları açıp kapatma
@@ -17,3 +18,5 @@ DOM, proje adı/bölge bilgisi varsa önerilebilir. Datum DXF metaverisinde bulu
 TKGM API erişimi tarayıcıdan CORS/servis kısıtına takılırsa, statik site inline parsel sonucu gösteremez; bu durumda resmi TKGM sorgu sayfasını kullanın. Parsel haritası hukuki/ölçme belgesi yerine geçmez.
 
 Harita tabanları ve koordinat dönüştürücü için internet bağlantısı gerekir. Sayfa HTTPS ile yayımlanmalıdır.
+
+Google Uydu için Google Maps JavaScript API anahtarı gerekir. Anahtar uygulama koduna yazılmaz ve sayfa yenilenince silinir; Google Maps API isteğinde tarayıcıdan Google'a gönderilir. Yalnızca Maps JavaScript API'ye ve bu sitenin HTTP referrer alan adına kısıtlanmış bir anahtar kullanın.

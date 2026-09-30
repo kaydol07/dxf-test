@@ -14,8 +14,66 @@ document.querySelectorAll('.toolbar [data-panel]').forEach(button=>button.addEve
 document.querySelectorAll('.close').forEach(button=>button.addEventListener('click',()=>{button.closest('.drawer').hidden=true;document.querySelectorAll('.toolbar button').forEach(b=>b.classList.remove('active'));}));
 const layerToggle=document.getElementById('layerToggle'),layersPanel=document.getElementById('layersPanel');
 layerToggle.addEventListener('click',()=>layersPanel.hidden=!layersPanel.hidden);
-document.querySelectorAll('input[name="base"]').forEach(r=>r.addEventListener('change',()=>{Object.values(bases).forEach(l=>map.removeLayer(l));bases[r.value].addTo(map);if(document.getElementById('labelsToggle').checked)labelLayer.addTo(map);}));
-document.getElementById('labelsToggle').addEventListener('change',e=>e.target.checked?labelLayer.addTo(map):map.removeLayer(labelLayer));
+const googleMapBase=document.createElement('div');
+googleMapBase.id='googleMapBase';googleMapBase.hidden=true;document.getElementById('map').append(googleMapBase);
+let googleMap=null,googleMapsApiPromise=null,googleMapSync=null;
+function disableGoogleMap(){
+  if(googleMapSync){map.off('moveend zoomend',googleMapSync);googleMapSync=null}
+  googleMap=null;googleMapBase.replaceChildren();googleMapBase.hidden=true;
+  document.body.classList.remove('google-map-active');
+  document.getElementById('labelsToggle').disabled=false;
+  map.zoomControl.getContainer().hidden=false;
+  map.attributionControl.addTo(map);
+}
+function setStandardBase(name){
+  disableGoogleMap();Object.values(bases).forEach(layer=>map.removeLayer(layer));
+  bases[name].addTo(map);
+  if(document.getElementById('labelsToggle').checked)labelLayer.addTo(map);
+  document.querySelector(`input[name="base"][value="${name}"]`).checked=true;
+}
+document.querySelectorAll('input[name="base"]').forEach(r=>r.addEventListener('change',()=>setStandardBase(r.value)));
+document.getElementById('labelsToggle').addEventListener('change',e=>{
+  if(document.body.classList.contains('google-map-active'))return;
+  e.target.checked?labelLayer.addTo(map):map.removeLayer(labelLayer);
+});
+function loadGoogleMapsApi(key){
+  if(window.google?.maps)return Promise.resolve();
+  if(googleMapsApiPromise)return googleMapsApiPromise;
+  googleMapsApiPromise=new Promise((resolve,reject)=>{
+    const callbackName='__dxfGoogleMapsReady';let settled=false;
+    const finish=error=>{if(settled)return;settled=true;clearTimeout(timer);delete window[callbackName];error?reject(error):resolve()};
+    window[callbackName]=()=>finish();
+    const script=document.createElement('script');script.async=true;
+    script.src=`https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(key)}&loading=async&callback=${callbackName}`;
+    script.onerror=()=>finish(new Error('Google Maps API yüklenemedi. Anahtarı ve internet bağlantısını kontrol edin.'));
+    const timer=setTimeout(()=>finish(new Error('Google Maps yanıt vermedi. API anahtarı, alan adı kısıtlaması ve API yetkisini kontrol edin.')),18000);
+    document.head.append(script);
+  }).catch(error=>{googleMapsApiPromise=null;throw error});
+  return googleMapsApiPromise;
+}
+async function enableGoogleSatellite(){
+  const input=document.getElementById('googleMapsKey'),status=document.getElementById('googleMapStatus'),button=document.getElementById('googleMapButton');
+  const key=input.value.trim();
+  if(!key){status.textContent='Önce Google Maps API anahtarını girin. Anahtar bu sayfada kaydedilmez.';input.focus();return}
+  input.value='';button.disabled=true;status.textContent='Google Uydu yükleniyor…';
+  try{
+    await loadGoogleMapsApi(key);
+    setStandardBase('satellite');map.removeLayer(bases.satellite);
+    if(map.hasLayer(labelLayer))map.removeLayer(labelLayer);
+    document.getElementById('labelsToggle').disabled=true;
+    map.attributionControl.remove();map.zoomControl.getContainer().hidden=true;
+    googleMapBase.hidden=false;document.body.classList.add('google-map-active');
+    googleMap=new google.maps.Map(googleMapBase,{center:map.getCenter(),zoom:map.getZoom(),mapTypeId:'satellite',disableDefaultUI:true,gestureHandling:'none',keyboardShortcuts:false,clickableIcons:false});
+    googleMapSync=()=>googleMap?.moveCamera({center:map.getCenter(),zoom:map.getZoom()});
+    map.on('moveend zoomend',googleMapSync);
+    layersPanel.hidden=true;
+    status.textContent='Google Uydu açık. Anahtar yalnızca bu sekmenin belleğinde kullanılıyor; sayfayı yenileyince yeniden girmeniz gerekir.';
+  }catch(error){
+    disableGoogleMap();setStandardBase('satellite');
+    status.textContent=error.message||'Google Uydu açılamadı.';
+  }finally{button.disabled=false}
+}
+document.getElementById('googleMapButton').addEventListener('click',enableGoogleSatellite);
 document.querySelectorAll('.dom-grid').forEach(grid=>{grid.textContent='';[27,30,33,36,39,42,45].forEach(n=>{const b=document.createElement('button');b.textContent=n;b.className=n===36?'selected':'';b.addEventListener('click',()=>{grid.querySelectorAll('button').forEach(x=>x.classList.remove('selected'));b.classList.add('selected')});grid.append(b)})});
 document.querySelectorAll('[data-datum]').forEach(b=>b.addEventListener('click',()=>{document.querySelectorAll('[data-datum]').forEach(x=>x.classList.toggle('selected',x===b))}));
 const toast=document.getElementById('toast');let toastTimer;function showToast(text){toast.textContent=text;toast.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>toast.classList.remove('show'),2800)}
