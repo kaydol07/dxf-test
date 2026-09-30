@@ -19,6 +19,14 @@
     <label><input type="radio" name="base" value="dark"> CartoDB Koyu</label>
     <label><input type="radio" name="base" value="light"> CartoDB Açık</label>
     <label class="checkbox-row"><input type="checkbox" id="labelsToggle" checked> 📍 Yer İsimleri</label>
+    <div class="google-map-setup">
+      <div class="section-label">GOOGLE UYDU</div>
+      <label for="googleMapsKey">Google Maps API anahtarı</label>
+      <input id="googleMapsKey" type="password" autocomplete="off" spellcheck="false" placeholder="API anahtarını bu oturum için gir">
+      <button class="wide-button" id="googleMapButton" type="button">GOOGLE UYDUYU AÇ</button>
+      <div class="message" id="googleMapStatus" role="status">Anahtar sayfaya kaydedilmez. Google Maps JavaScript API anahtarı gerekir.</div>
+      <a class="official-link" href="https://developers.google.com/maps/documentation/javascript/demo-key" target="_blank" rel="noopener noreferrer">Ücretsiz test anahtarı al ↗</a>
+    </div>
   </section>
   <section class="drawer panel" id="projectPanel" hidden>
     <button class="close" aria-label="Kapat">×</button>
@@ -66,6 +74,6 @@
   <script src="https://cdn.jsdelivr.net/npm/proj4@2.15.0/dist/proj4.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mapbox/togeojson@0.16.2/togeojson.js"></script>
-  <script src="./app.js?v=4"></script>
+  <script src="./app.js?v=5"></script>
 </body>
 </html>
