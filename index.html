@@ -6,10 +6,23 @@
   <meta name="theme-color" content="#102b22">
   <title>ersin.kucukcamur | DXF Görüntüleyici</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
-  <link rel="stylesheet" href="./styles.css">
+  <link rel="stylesheet" href="./styles.css?v=3">
 </head>
 <body>
   <main id="map" aria-label="Harita"></main>
+  <section class="auth-gate" id="authGate" hidden>
+    <form class="auth-card" id="authForm">
+      <strong>PROJE SİSTEMİNE GİRİŞ</strong>
+      <p>BEDA, AEDAŞ veya taşeron hesabınla oturum aç.</p>
+      <label for="authEmail">E-posta</label>
+      <input id="authEmail" type="email" autocomplete="username" required>
+      <label for="authPassword">Şifre</label>
+      <input id="authPassword" type="password" autocomplete="current-password" required>
+      <button class="wide-button primary" id="authSubmit" type="submit">GİRİŞ YAP</button>
+      <div class="message" id="authMessage" role="status">Hesap erişimini proje yöneticisi sağlar.</div>
+      <button class="wide-button" id="authGateSignOut" type="button" hidden>OTURUMU KAPAT</button>
+    </form>
+  </section>
   <div class="brand">ersin.kucukcamur</div>
   <button class="layer-toggle" id="layerToggle" aria-label="Harita katmanlarını aç" title="Harita katmanları"><span class="layers-icon">▱</span></button>
   <section class="layers-panel panel" id="layersPanel" aria-label="Harita katmanları" hidden>
@@ -32,9 +45,21 @@
     <button class="close" aria-label="Kapat">×</button>
     <div class="panel-heading">📁 PROJE</div>
     <button class="wide-button danger" id="clearMap">🗑️ HARİTAYI TEMİZLE</button>
-    <button class="wide-button primary" id="uploadButton">📂 DOSYA YÜKLE (DXF / KMZ / KML)</button>
-    <button class="wide-button" id="loadDisk">☁️ DİSKTEN YÜKLE</button>
-    <input type="file" id="fileInput" accept=".dxf,.kmz,.kml" multiple hidden>
+    <button class="wide-button primary" id="uploadButton">📂 DXF / KML / KMZ YÜKLE</button>
+    <button class="wide-button" id="loadDisk">📦 PROJE PAKETİ AÇ</button>
+    <button class="wide-button" id="saveProjectBundle">💾 TÜM PROJEYİ PAKETLE</button>
+    <a class="wide-button bundle-download" id="downloadProjectBundle" hidden>⬇️ PROJE PAKETİNİ İNDİR</a>
+    <input type="file" id="fileInput" accept=".dxf,.kmz,.kml,.dxfproj,.zip" multiple hidden>
+    <div class="shared-projects" id="sharedProjects" hidden>
+      <div class="section-label">ORTAK PROJELER</div>
+      <div class="input-row"><select id="sharedProjectSelect" class="field-input" aria-label="Ortak proje"></select><button class="primary" id="openSharedProject" type="button">AÇ</button></div>
+      <button class="wide-button" id="refreshSharedProjects" type="button">PROJE LİSTESİNİ YENİLE</button>
+      <button class="wide-button" id="yandexFolderSetupButton" type="button" hidden>TAŞERON KLASÖRLERİNİ KONTROL ET</button>
+      <button class="wide-button" id="yandexBrowseButton" type="button">YANDEX DİSK / PROJELER'DEN AL</button>
+      <div class="yandex-file-list" id="yandexFileList" hidden></div>
+      <div class="message" id="yandexMessage" role="status"></div>
+    </div>
+    <div class="message file-privacy">Deneme sürümünde saha kayıtları bu tarayıcıda tutulur. “Tüm projeyi paketle” DXF ve fotoğrafları tek dosyaya alır; bu paketi Yandex Disk’e yükleyip daha sonra buradan açabilirsin.</div>
     <div class="message file-privacy">Seçtiğin çizimler tarayıcında işlenir; dosya sunucuya yüklenmez.</div>
     <div class="section-label">DXF KATMANLARI</div>
     <div class="cad-layers" id="cadLayers"><div class="message">DXF yüklendiğinde katmanlar burada görünür.</div></div>
@@ -52,6 +77,68 @@
     <button class="close" aria-label="Kapat">×</button><div class="panel-heading">📍 KONUM</div>
     <p>Canlı konum takibini başlat. Konumun hareket ettikçe harita güncellenir.</p><button class="wide-button primary" id="locateButton">CANLI TAKİBİ BAŞLAT</button><div class="message" id="locationStatus" role="status">Takip kapalı</div>
   </section>
+  <section class="drawer panel" id="fieldPanel" hidden>
+    <button class="close" aria-label="Kapat">×</button>
+    <div class="panel-heading">📷 SAHA KAYITLARI</div>
+    <div class="message field-project-label" id="fieldProjectLabel">Proje: Saha Denemesi</div>
+    <div id="fieldDemoIdentity">
+    <div class="field-access-demo">
+      <strong>DEMO KULLANICI / YETKİ</strong>
+      <span>Bu seçim şifreli giriş değildir; gerçek erişim kısıtlaması sağlamaz.</span>
+    </div>
+    <label for="fieldUserRole">Kullanıcı</label>
+    <select id="fieldUserRole" class="field-input">
+      <option value="beda">BEDA · düzenleyici</option>
+      <option value="aedas">AEDAŞ · görüntüleyici</option>
+      <option value="contractor">TAŞERON · görüntüleyici</option>
+    </select>
+    <div id="fieldContractorRow" hidden>
+      <label for="fieldContractor">Taşeron hesabı</label>
+      <select id="fieldContractor" class="field-input">
+        <option>ERKSİS</option><option>ASTAN</option><option>ASMİN</option><option>ERBU</option><option>AZRAM</option>
+      </select>
+    </div>
+    </div>
+    <div class="field-current-user" id="fieldCurrentUser" hidden></div>
+    <button class="wide-button" id="authSignOut" type="button" hidden>OTURUMU KAPAT</button>
+    <div class="message field-role-notice" id="fieldRoleNotice" role="status"></div>
+    <div class="message field-readonly-notice" id="fieldReadOnlyNotice" role="status" hidden></div>
+    <div id="fieldEditor">
+    <label class="field-photo-pick" for="fieldPhotoInput">📸 FOTOĞRAF ÇEK / SEÇ</label>
+    <input type="file" id="fieldPhotoInput" accept="image/*" capture="environment" hidden>
+    <img class="field-photo-preview" id="fieldPhotoPreview" alt="Seçilen saha fotoğrafı" hidden>
+    <div class="message" id="fieldPhotoStatus" role="status">Fotoğrafın GPS bilgisi varsa konumu otomatik okunur.</div>
+    <label for="fieldTitle">Kayıt başlığı</label>
+    <input id="fieldTitle" class="field-input" maxlength="100" placeholder="Örn. 12 numaralı direkte izolatör hasarı">
+    <label for="fieldCategory">Tespit türü</label>
+    <select id="fieldCategory" class="field-input">
+      <option value="Direk">Direk</option><option value="Hat">Hat</option><option value="Arıza">Arıza</option><option value="Bakım">Bakım</option><option value="Diğer">Diğer</option>
+    </select>
+    <label for="fieldStatus">Durum</label>
+    <select id="fieldStatus" class="field-input" required>
+      <option value="">Durum seç</option>
+      <option value="problem">🔴 Sorunlu</option>
+      <option value="pending">🟡 Düzeltilmesi bekliyor</option>
+      <option value="suitable">🟢 Uygun</option>
+    </select>
+    <div class="message field-status-warning" id="fieldStatusWarning" role="alert" hidden></div>
+    <label for="fieldOwner">İşin taşeronu</label>
+    <select id="fieldOwner" class="field-input">
+      <option value="">Taşeron atanmamış</option>
+      <option>ERKSİS</option><option>ASTAN</option><option>ASMİN</option><option>ERBU</option><option>AZRAM</option>
+    </select>
+    <label for="fieldNotes">Saha notu</label>
+    <textarea id="fieldNotes" class="field-input field-notes-input" maxlength="2000" placeholder="Gördüğün durumu ve yapılacak işi yaz…"></textarea>
+    <div class="field-location-actions">
+      <button class="wide-button" id="fieldUseCurrentLocation" type="button">📍 ŞU ANKİ KONUMUMU AL</button>
+      <button class="wide-button" id="fieldPickLocation" type="button">🗺️ HARİTADAN YER SEÇ</button>
+    </div>
+    <div class="message" id="fieldLocationStatus" role="status">Konum seçilmedi.</div>
+    <button class="wide-button primary" id="saveFieldRecord" type="button">KAYDI PROJEYE EKLE</button>
+    </div>
+    <div class="section-label">BU PROJEDEKİ KAYITLAR</div>
+    <div class="field-record-list" id="fieldRecordList"><div class="message">Henüz saha kaydı yok.</div></div>
+  </section>
   <section class="drawer panel" id="addressPanel" hidden>
     <button class="close" aria-label="Kapat">×</button><div class="panel-heading">↗️ ADRESE GİT</div>
     <form id="addressForm"><label for="addressInput">Adres veya yer ara</label><div class="input-row"><input id="addressInput" placeholder="Örn. Ankara, Türkiye" required><button class="primary" type="submit">ARA</button></div></form><div class="message" id="addressMessage"></div>
@@ -66,6 +153,7 @@
   </section>
   <nav class="toolbar" aria-label="Harita araçları">
     <button data-panel="projectPanel"><span class="tool-icon folder">📁</span><span>PROJE</span></button>
+    <button data-panel="fieldPanel"><span class="tool-icon pin">📷</span><span>SAHA</span></button>
     <button data-panel="locationPanel"><span class="tool-icon pin">📍</span><span>KONUM</span></button>
     <button data-panel="addressPanel"><span class="tool-icon go">↗</span><span>ADRESE GİT</span></button>
     <button data-panel="parcelPanel"><span class="tool-icon parcel">▱</span><span>PARSEL</span></button>
@@ -76,6 +164,8 @@
   <script src="https://cdn.jsdelivr.net/npm/proj4@2.15.0/dist/proj4.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mapbox/togeojson@0.16.2/togeojson.js"></script>
-  <script src="./app.js?v=12"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="./supabase-config.js?v=4"></script>
+  <script src="./app.js?v=26"></script>
 </body>
 </html>
