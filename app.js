@@ -1270,7 +1270,7 @@ async function importProjectBundle(file, sourcePath = null) {
   const projectName = dxfEntries.length === 1
     ? dxfEntries[0].name.replace(/\.dxf$/i, '')
     : manifest.project.name;
-  const projectId = sourcePath ? yandexProjectId(projectName, sourcePath) : manifest.project.id;
+  const projectId = manifest.project?.id || (sourcePath ? yandexProjectId(projectName, sourcePath) : null);
   document.getElementById('clearMap').click();
   setActiveProject(projectName, projectId);
   if (backendEnabled) await ensureRemoteProject(yandexFolderForPath(sourcePath));
