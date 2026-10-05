@@ -893,7 +893,7 @@ async function browseYandexProjects() {
           const blob = await callYandexBridge({ action: 'download', path: item.path }, true);
           const file = new File([blob], item.name, { type: item.mimeType || 'application/octet-stream', lastModified: Date.now() });
           if (/\.(dxfproj|zip)$/i.test(file.name)) {
-            if (!isBedaEditor()) throw new Error('Saha kayıtları içerebilen proje paketlerini yalnızca BEDA açabilir.');
+            if (!authenticatedProfile) throw new Error('Önce giriş yap.');
             await importProjectBundle(file, item.path);
           }
           else {
