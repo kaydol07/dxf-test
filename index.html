@@ -14,8 +14,8 @@
     <form class="auth-card" id="authForm">
       <strong>PROJE SİSTEMİNE GİRİŞ</strong>
       <p>BEDA, AEDAŞ veya taşeron hesabınla oturum aç.</p>
-      <label for="authEmail">E-posta</label>
-      <input id="authEmail" type="email" autocomplete="username" required>
+      <label for="authUsername">Kullanıcı adı</label>
+      <input id="authUsername" type="text" autocomplete="username" autocapitalize="characters" spellcheck="false" placeholder="Örn. BEDA" required>
       <label for="authPassword">Şifre</label>
       <input id="authPassword" type="password" autocomplete="current-password" required>
       <button class="wide-button primary" id="authSubmit" type="submit">GİRİŞ YAP</button>
@@ -166,6 +166,6 @@
   <script src="https://cdn.jsdelivr.net/npm/@mapbox/togeojson@0.16.2/togeojson.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="./supabase-config.js?v=4"></script>
-  <script src="./app.js?v=26"></script>
+  <script src="./app.js?v=27"></script>
 </body>
 </html>

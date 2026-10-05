@@ -135,8 +135,8 @@ async function queryParcel(latlng){
   }catch(error){if(error.name==='AbortError')return;parcelMessage.textContent='TKGM servisine bu siteden erişilemedi. Tarayıcı bağlantıyı engellemiş olabilir; resmî sorguyu yeni sekmede açabilirsin.';}
 }
 map.on('click',event=>{if(parcelPickActive)queryParcel(event.latlng)});
-document.getElementById('uploadButton').addEventListener('click',()=>{if(!isBedaEditor()){showToast('Dosya yükleme yetkisi yalnızca BEDA hesabında.');return}document.getElementById('fileInput').click()});
-document.getElementById('loadDisk').addEventListener('click',()=>{if(!isBedaEditor()){showToast('Proje açma yetkisi yalnızca BEDA hesabında.');return}document.getElementById('fileInput').click()});
+document.getElementById('uploadButton').addEventListener('click',()=>{if(!canManageProjectFiles()){showToast('Proje dosyası yüklemek için giriş yap.');return}document.getElementById('fileInput').click()});
+document.getElementById('loadDisk').addEventListener('click',()=>{if(!canManageProjectFiles()){showToast('Proje açmak için giriş yap.');return}document.getElementById('fileInput').click()});
 const importedLayers=[];
 const cadLayers=document.getElementById('cadLayers');
 const loadedFiles=document.getElementById('loadedFiles');
@@ -164,7 +164,7 @@ async function parseKml(file){
   cadLayers.querySelector('.message')?.remove();addLayerEntry(file.name,layer,n);zoomTo(layer);return n;
 }
 document.getElementById('fileInput').addEventListener('change',async e=>{
-  if (!isBedaEditor()) { e.target.value=''; showToast('Dosya yükleme yetkisi yalnızca BEDA hesabında.'); return; }
+  if (!canManageProjectFiles()) { e.target.value=''; showToast('Proje dosyası yüklemek için giriş yap.'); return; }
   const files=[...e.target.files];if(!files.length)return;
   const bundle=files.find(file=>/\.dxfproj$|\.zip$/i.test(file.name));
   if(bundle){try{await importProjectBundle(bundle)}catch(error){console.error(error);showToast(error.message||'Proje paketi açılamadı.')}e.target.value='';return}
@@ -486,10 +486,18 @@ let demoContractor = FIELD_CONTRACTORS.includes(normalizeContractorCode(localSto
 let authenticatedProfile = null, authenticatedSession = null;
 function activeRole() { return backendConfigured ? authenticatedProfile?.role || '' : demoRole; }
 function isBedaEditor() { return activeRole() === 'beda'; }
+function canManageProjectFiles() { return ['beda', 'aedas', 'contractor'].includes(activeRole()); }
 let authApplyRevision = 0;
 const authMessage = document.getElementById('authMessage');
 if (backendConfigured && !backendEnabled) authMessage.textContent = backendInitError;
 const authSignOutButtons = [document.getElementById('authSignOut'), document.getElementById('authGateSignOut')];
+function usernameToInternalEmail(value) {
+  const username = String(value || '').trim()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase().replace(/[^a-z0-9._-]/g, '');
+  if (!username) throw new Error('Kullanıcı adını gir.');
+  return `${username}@accounts.dxf.local`;
+}
 async function applyAuthenticationSession(session) {
   if (!backendEnabled) return;
   const revision = ++authApplyRevision;
@@ -558,7 +566,7 @@ document.getElementById('authForm').addEventListener('submit', async event => {
   authMessage.textContent = 'Giriş yapılıyor…';
   try {
     const { error } = await supabaseClient.auth.signInWithPassword({
-      email: document.getElementById('authEmail').value.trim(),
+      email: usernameToInternalEmail(document.getElementById('authUsername').value),
       password: document.getElementById('authPassword').value
     });
     if (error) authMessage.textContent = `Giriş yapılamadı: ${error.message}`;
@@ -770,16 +778,19 @@ async function openSharedProject() {
 }
 async function ensureRemoteProject(yandexPath = null) {
   if (!backendEnabled) return;
-  if (!authenticatedProfile || !isBedaEditor()) throw new Error('Ortak projeyi yalnızca BEDA hesabı oluşturabilir.');
+  if (!authenticatedProfile || !canManageProjectFiles()) throw new Error('Proje oluşturma yetkin yok.');
+  const ownFolder = activeRole() === 'contractor' ? `disk:/PROJELER/${authenticatedProfile.contractor_code}` : null;
+  if (ownFolder && yandexPath && yandexPath !== ownFolder) throw new Error('Taşeron yalnızca kendi Yandex klasörüne ait proje yükleyebilir.');
   const project = { id: activeProjectId, name: activeProjectName, created_by: authenticatedProfile.user_id };
-  if (yandexPath) project.yandex_path = yandexPath;
+  if (ownFolder || yandexPath) project.yandex_path = ownFolder || yandexPath;
   const { error } = await supabaseClient.from('projects').upsert(project, { onConflict: 'id' });
   if (error) throw error;
 }
 async function storeRemoteProjectFile(file, sourcePath = null) {
   if (!backendEnabled) return;
-  if (!isBedaEditor()) throw new Error('Proje dosyasını ortak alana yalnızca BEDA yükleyebilir.');
-  const yandexFolder = yandexFolderForPath(sourcePath);
+  if (!canManageProjectFiles()) throw new Error('Proje dosyası yükleme yetkin yok.');
+  const yandexFolder = yandexFolderForPath(sourcePath)
+    || (activeRole() === 'contractor' ? `disk:/PROJELER/${authenticatedProfile.contractor_code}` : null);
   await ensureRemoteProject(yandexFolder);
   const storagePath = `${activeProjectId}/${safeFileName(file.name)}`;
   const { error: uploadError } = await supabaseClient.storage.from('project-files').upload(storagePath, file, { upsert: true, contentType: file.type || 'application/octet-stream' });
@@ -865,11 +876,13 @@ async function browseYandexProjects() {
             const projectName = file.name.replace(/\.(dxf|kmz|kml)$/i, '');
             setActiveProject(projectName, yandexProjectId(projectName, item.path));
             const count = file.name.toLowerCase().endsWith('.dxf') ? await parseDxf(file) : await parseKml(file);
-            if (isBedaEditor()) await storeRemoteProjectFile(file, item.path);
+            if (canManageProjectFiles()) await storeRemoteProjectFile(file, item.path);
             loadedFiles.textContent = `${file.name} (${count} nesne)`;
             await refreshFieldRecords();
-            if (isBedaEditor()) await refreshSharedProjects();
-            message.textContent = isBedaEditor() ? `${projectName} BEDA’nın ortak proje alanına aktarıldı.` : `${projectName} kendi klasöründen salt okunur açıldı.`;
+            if (canManageProjectFiles()) await refreshSharedProjects();
+            message.textContent = isBedaEditor() ? `${projectName} BEDA’nın ortak proje alanına aktarıldı.`
+              : activeRole() === 'aedas' ? `${projectName} AEDAŞ ortak proje alanına aktarıldı.`
+              : `${projectName} kendi taşeron klasörüne aktarıldı.`;
           }
         } catch (error) { console.error(error); message.textContent = error.message || 'Yandex projesi alınamadı.'; }
         finally { button.disabled = false; }
