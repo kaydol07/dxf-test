@@ -1258,7 +1258,7 @@ document.getElementById('saveProjectBundle').addEventListener('click', async eve
 });
 
 async function importProjectBundle(file, sourcePath = null) {
-  if (!isBedaEditor()) throw new Error('Proje paketi açma yetkisi yalnızca BEDA hesabında.');
+  if (!authenticatedProfile) throw new Error('Önce giriş yap.');
   showToast('Proje paketi açılıyor…');
   const zip = await JSZip.loadAsync(file);
   const manifestFile = zip.file('project.json');
