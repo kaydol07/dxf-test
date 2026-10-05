@@ -479,8 +479,9 @@ if (backendConfigured) {
   } catch (error) { backendInitError = error.message || 'Supabase bağlantı ayarı hatalı.'; }
 }
 const backendEnabled = Boolean(supabaseClient);
-document.body.classList.toggle('auth-required', backendConfigured);
-document.getElementById('authGate').hidden = !backendConfigured;
+document.body.classList.remove('auth-required');
+
+document.getElementById('authGate').hidden = true;
 let demoRole = DEMO_ROLES.includes(localStorage.getItem('dxf-demo-role')) ? localStorage.getItem('dxf-demo-role') : 'beda';
 let demoContractor = FIELD_CONTRACTORS.includes(normalizeContractorCode(localStorage.getItem('dxf-demo-contractor'))) ? normalizeContractorCode(localStorage.getItem('dxf-demo-contractor')) : FIELD_CONTRACTORS[0];
 let authenticatedProfile = null, authenticatedSession = null;
@@ -491,6 +492,18 @@ let authApplyRevision = 0;
 const authMessage = document.getElementById('authMessage');
 if (backendConfigured && !backendEnabled) authMessage.textContent = backendInitError;
 const authSignOutButtons = [document.getElementById('authSignOut'), document.getElementById('authGateSignOut')];
+const loginToolbarButton = document.getElementById('loginToolbarButton');
+function updateLoginToolbar() {
+  if (!loginToolbarButton) return;
+  const loggedIn = Boolean(authenticatedProfile);
+  loginToolbarButton.querySelector('.tool-icon').textContent = loggedIn ? '👤' : '🔐';
+  loginToolbarButton.querySelector('.tool-label').textContent = loggedIn ? 'HESAP' : 'GİRİŞ';
+  loginToolbarButton.title = loggedIn ? `Oturum: ${authenticatedProfile.display_name}` : 'Giriş yap';
+}
+function openLoginPanel() {
+  document.getElementById('authGate').hidden = false;
+  document.getElementById('authUsername').focus();
+}
 function usernameToInternalEmail(value) {
   const username = String(value || '').trim()
     .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
@@ -506,8 +519,9 @@ async function applyAuthenticationSession(session) {
   authenticatedProfile = null;
   if (!session) {
     if (previousUserId) unloadDisplayedProject();
-    document.body.classList.add('auth-required');
-    document.getElementById('authGate').hidden = false;
+    document.body.classList.remove('auth-required');
+    document.getElementById('authGate').hidden = true;
+    updateLoginToolbar();
     authSignOutButtons.forEach(button => { if (button) button.hidden = true; });
     authMessage.textContent = 'BEDA, AEDAŞ veya taşeron hesabınla oturum aç.';
     applyDemoRole();
@@ -521,8 +535,9 @@ async function applyAuthenticationSession(session) {
   if (error || !data || !['beda', 'aedas', 'contractor'].includes(data.role)
       || (data.role === 'contractor' && !FIELD_CONTRACTORS.includes(data.contractor_code))) {
     if (previousUserId) unloadDisplayedProject();
-    document.body.classList.add('auth-required');
+    document.body.classList.remove('auth-required');
     document.getElementById('authGate').hidden = false;
+    updateLoginToolbar();
     authSignOutButtons.forEach(button => { if (button) button.hidden = false; });
     authMessage.textContent = error ? `Hesap yetkisi okunamadı: ${error.message}` : 'Bu kullanıcıya rol atanmamış. Proje yöneticisinden hesap yetkisi iste.';
     applyDemoRole();
@@ -533,6 +548,7 @@ async function applyAuthenticationSession(session) {
   authenticatedProfile = data;
   document.body.classList.remove('auth-required');
   document.getElementById('authGate').hidden = true;
+  updateLoginToolbar();
   authSignOutButtons.forEach(button => { if (button) button.hidden = false; });
   authMessage.textContent = '';
   applyDemoRole();
@@ -574,6 +590,15 @@ document.getElementById('authForm').addEventListener('submit', async event => {
   finally { button.disabled = false; }
 });
 authSignOutButtons.forEach(button => button?.addEventListener('click', signOutAuthenticatedUser));
+document.getElementById('authGateClose').addEventListener('click', () => { document.getElementById('authGate').hidden = true; });
+loginToolbarButton?.addEventListener('click', () => {
+  if (authenticatedProfile) {
+    openPanel('fieldPanel');
+  } else {
+    openLoginPanel();
+  }
+});
+updateLoginToolbar();
 async function initializeAuthentication() {
   if (!backendEnabled) return;
   supabaseClient.auth.onAuthStateChange((_event, session) => {
@@ -1300,3 +1325,5 @@ window.addEventListener('beforeunload', () => {
   cleanupFieldObjectUrls();
   if (generatedProjectBundleUrl) URL.revokeObjectURL(generatedProjectBundleUrl);
 });
+
+
