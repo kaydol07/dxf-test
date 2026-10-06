@@ -8,7 +8,7 @@ const bases={
 };
 bases.satellite.addTo(map);
 let labelLayer=L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager_only_labels/{z}/{x}/{y}{r}.png',{attribution:'',maxZoom:20,pane:'overlayPane'}).addTo(map);
-const panels=['projectPanel','fieldPanel','locationPanel','addressPanel','parcelPanel'];
+const panels=['projectPanel','fieldPanel','inspectionPanel','locationPanel','addressPanel','parcelPanel'];
 function openPanel(id){panels.forEach(p=>document.getElementById(p).hidden=p!==id||!document.getElementById(p).hidden);document.querySelectorAll('.toolbar [data-panel]').forEach(b=>b.classList.toggle('active',b.dataset.panel===id&&!document.getElementById(id).hidden));}
 document.querySelectorAll('.toolbar [data-panel]').forEach(button=>button.addEventListener('click',()=>{const id=button.dataset.panel;const wasClosed=document.getElementById(id).hidden;if(fieldPickActive)setFieldPick(false);openPanel(id);if(id==='locationPanel'&&wasClosed)startLocationTracking();if(id==='parcelPanel')setParcelPick(wasClosed)}));
 document.querySelectorAll('.close').forEach(button=>button.addEventListener('click',()=>{button.closest('.drawer').hidden=true;document.querySelectorAll('.toolbar button').forEach(b=>b.classList.remove('active'));}));
@@ -135,8 +135,8 @@ async function queryParcel(latlng){
   }catch(error){if(error.name==='AbortError')return;parcelMessage.textContent='TKGM servisine bu siteden erişilemedi. Tarayıcı bağlantıyı engellemiş olabilir; resmî sorguyu yeni sekmede açabilirsin.';}
 }
 map.on('click',event=>{if(parcelPickActive)queryParcel(event.latlng)});
-document.getElementById('uploadButton').addEventListener('click',()=>{if(!canManageProjectFiles()){showToast('Proje dosyası yüklemek için giriş yap.');return}document.getElementById('fileInput').click()});
-document.getElementById('loadDisk').addEventListener('click',()=>{if(!canManageProjectFiles()){showToast('Proje açmak için giriş yap.');return}document.getElementById('fileInput').click()});
+document.getElementById('uploadButton').addEventListener('click',()=>{if(!canManageProjectFiles()){showToast('DXF yükleme yetkisi yalnızca BEDA hesabında.');return}document.getElementById('fileInput').click()});
+document.getElementById('loadDisk').addEventListener('click',()=>{if(!canOpenProjectFiles()){showToast('Proje açmak için giriş yap.');return}document.getElementById('fileInput').click()});
 const importedLayers=[];
 const cadLayers=document.getElementById('cadLayers');
 const loadedFiles=document.getElementById('loadedFiles');
@@ -164,14 +164,15 @@ async function parseKml(file){
   cadLayers.querySelector('.message')?.remove();addLayerEntry(file.name,layer,n);zoomTo(layer);return n;
 }
 document.getElementById('fileInput').addEventListener('change',async e=>{
-  if (!canManageProjectFiles()) { e.target.value=''; showToast('Proje dosyası yüklemek için giriş yap.'); return; }
   const files=[...e.target.files];if(!files.length)return;
   const bundle=files.find(file=>/\.dxfproj$|\.zip$/i.test(file.name));
-  if(bundle){try{await importProjectBundle(bundle)}catch(error){console.error(error);showToast(error.message||'Proje paketi açılamadı.')}e.target.value='';return}
+  if(bundle){if(!canOpenProjectFiles()){e.target.value='';showToast('Proje paketi açmak için giriş yap.');return}try{await importProjectBundle(bundle)}catch(error){console.error(error);showToast(error.message||'Proje paketi açılamadı.')}e.target.value='';return}
+  if (!canManageProjectFiles()) { e.target.value=''; showToast('DXF yükleme yetkisi yalnızca BEDA hesabında.'); return; }
   const dxfFiles=files.filter(file=>file.name.toLowerCase().endsWith('.dxf'));
   if(dxfFiles.length){
     const oldProjectId=activeProjectId;
-    setActiveProject(dxfFiles[0].name.replace(/\.dxf$/i,''));
+    const identity = await resolveRawProjectIdentity(dxfFiles[0]);
+    setActiveProject(dxfFiles[0].name.replace(/\.dxf$/i,''), identity.id, identity);
     await moveProjectRecords(oldProjectId,activeProjectId,activeProjectName);
   }
   cadLayers.querySelector('.message')?.remove();
@@ -183,7 +184,7 @@ document.getElementById('fileInput').addEventListener('change',async e=>{
   loadedFiles.textContent=done.join(' · ');if(done.some(x=>x.includes('nesne')))showToast('Dosyalar haritaya eklendi. Katmanları sol panelden açıp kapatabilirsin.');if(dxfFiles.length)refreshFieldRecords();e.target.value='';
 });
 document.getElementById('allLayers').addEventListener('change',e=>{for(const item of importedLayers){const c=item.row.querySelector('input');c.checked=e.target.checked;if(e.target.checked)item.layer.addTo(map);else map.removeLayer(item.layer)}});
-document.getElementById('clearMap').addEventListener('click',()=>{if(!isBedaEditor()){showToast('Harita temizleme yetkisi yalnızca BEDA hesabında.');return}for(const item of importedLayers){map.removeLayer(item.layer);item.row.remove()}importedLayers.length=0;map.eachLayer(l=>{if(l!==bases.satellite&&l!==bases.street&&l!==bases.dark&&l!==bases.light&&l!==labelLayer&&l!==locationMarker&&l!==locationAccuracy&&l!==fieldMarkerLayer)map.removeLayer(l)});if(fieldDraftMarker){map.removeLayer(fieldDraftMarker);fieldDraftMarker=null}fieldDraftLocation=null;fieldLocationStatus.textContent='Konum seçilmedi.';if(parcelRequest)parcelRequest.abort();parcelLayer=null;parcelResult.hidden=true;setParcelPick(false);cadLayers.innerHTML='<div class="message">DXF yüklendiğinde katmanlar burada görünür.</div>';loadedFiles.textContent='Henüz dosya yüklenmedi';document.getElementById('allLayers').checked=true;showToast('Harita üzerindeki işaretler temizlendi.')});
+document.getElementById('clearMap').addEventListener('click',()=>{for(const item of importedLayers){map.removeLayer(item.layer);item.row.remove()}importedLayers.length=0;map.eachLayer(l=>{if(l!==bases.satellite&&l!==bases.street&&l!==bases.dark&&l!==bases.light&&l!==labelLayer&&l!==locationMarker&&l!==locationAccuracy&&l!==fieldMarkerLayer&&l!==inspectionMarkerLayer)map.removeLayer(l)});inspectionMarkerLayer.clearLayers();if(fieldDraftMarker){map.removeLayer(fieldDraftMarker);fieldDraftMarker=null}fieldDraftLocation=null;fieldLocationStatus.textContent='Konum seçilmedi.';if(parcelRequest)parcelRequest.abort();parcelLayer=null;parcelResult.hidden=true;setParcelPick(false);cadLayers.innerHTML='<div class="message">DXF yüklendiğinde katmanlar burada görünür.</div>';loadedFiles.textContent='Henüz dosya yüklenmedi';document.getElementById('allLayers').checked=true;showToast('Harita üzerindeki işaretler temizlendi.')});
 document.querySelectorAll('[data-datum]').forEach(b=>b.addEventListener('click',()=>showToast('Koordinat sistemi: '+b.dataset.datum)));
 document.getElementById('printButton').addEventListener('click',()=>window.print());
 
@@ -356,7 +357,6 @@ document.querySelectorAll('.dom-grid button').forEach(button => button.addEventL
   scheduleDxfReproject();
 }));
 document.getElementById('clearMap').addEventListener('click', () => {
-  if (!isBedaEditor()) { showToast('Harita temizleme yetkisi yalnızca BEDA hesabında.'); return; }
   clearTimeout(reprojectTimer);
   for (const [worker, cancel] of Array.from(activeDxfJobs)) { worker.terminate(); cancel(); }
   cadDxfFiles.clear();
@@ -376,13 +376,14 @@ async function parseDxf(file, options = {}) {
   };
   try {
     const buffer = await file.arrayBuffer();
-    worker = new Worker(new URL('./dxf-worker.js?v=2', document.baseURI));
+    worker = new Worker(new URL('./dxf-worker.js?v=3', document.baseURI));
     const result = await new Promise((resolve, reject) => {
       const cancel = () => { if (settled) return; settled = true; reject(new Error('DXF yüklemesi iptal edildi.')); };
       activeDxfJobs.set(worker, cancel);
       worker.onmessage = event => {
         const message = event.data || {};
         if (message.type === 'crs') applyDetectedCrs(message.info);
+        else if (message.type === 'inspection-candidates') registerDetectedElements(message.candidates, file.name);
         else if (message.type === 'batch') {
           for (const batch of message.batches || []) {
             let entry = fileLayers.get(batch.name);
@@ -414,7 +415,8 @@ async function parseDxf(file, options = {}) {
       };
       worker.postMessage({
         type: 'parse', buffer, fileName: file.name,
-        crs: { ...selectedCrs(), manualDatum: userDatum, manualCm: userDom }
+        crs: { ...selectedCrs(), manualDatum: userDatum, manualCm: userDom },
+        inspectionIntervalMeters: INSPECTION_CONFIG.settings?.inspectionIntervalMeters || 5
       }, [buffer]);
     });
     let bounds = null;
@@ -440,9 +442,12 @@ async function parseDxf(file, options = {}) {
 /* Field photos and notes stay in this browser until the user exports a project bundle. */
 const FIELD_DB_NAME = 'dxf-field-records-v1';
 const FIELD_STORE = 'records';
+const INSPECTION_STORE = 'inspection-state';
 let fieldDbPromise = null;
+const sessionBundleRecords = new Map();
 let activeProjectId = localStorage.getItem('dxf-active-project-id') || 'saha-denemesi';
 let activeProjectName = localStorage.getItem('dxf-active-project-name') || 'Saha Denemesi';
+let activeProjectMeta = { canonicalKey: null, contractorCode: null, sourcePath: null };
 let fieldPhotoFile = null, fieldPhotoUrl = null, fieldDraftLocation = null;
 let fieldDraftMarker = null, fieldPickActive = false;
 if (!map.getPane('fieldMarkerPane')) { const pane = map.createPane('fieldMarkerPane'); pane.style.zIndex = '650'; }
@@ -465,9 +470,16 @@ const fieldOwnerInput = document.getElementById('fieldOwner');
 const fieldRecordList = document.getElementById('fieldRecordList');
 const fieldProjectLabel = document.getElementById('fieldProjectLabel');
 const fieldObjectUrls = new Set();
-let generatedProjectBundleUrl = null;
+let generatedProjectBundleUrl = null, generatedProjectBundleBlob = null;
 const FIELD_CONTRACTORS = ['ERKSİS', 'ASTAN', 'ASMİN', 'ERBU', 'AZRAM'];
 function normalizeContractorCode(value) { return value === 'ERSKSİS' ? 'ERKSİS' : value; }
+const INSPECTION_CONFIG = window.DXF_INSPECTION_CONFIG || { version: 1, settings: { inspectionIntervalMeters: 5, progressEnabled: true }, checklists: {}, theme: {} };
+const inspectionMarkerLayer = L.layerGroup().addTo(map);
+const inspectionObjectUrls = new Set();
+let inspectionPickType = null;
+let inspectionFilter = 'all';
+let selectedInspectionTarget = null;
+let inspectionState = { projectId: null, elements: new Map(), points: [], results: [], nonconformities: [], events: [], attachments: [], localOnly: false };
 const DEMO_ROLES = ['beda', 'aedas', 'contractor'];
 const supabaseConfig = window.DXF_SUPABASE_CONFIG || {};
 const backendConfigured = Boolean(supabaseConfig.url && supabaseConfig.publishableKey);
@@ -487,7 +499,8 @@ let demoContractor = FIELD_CONTRACTORS.includes(normalizeContractorCode(localSto
 let authenticatedProfile = null, authenticatedSession = null;
 function activeRole() { return backendConfigured ? authenticatedProfile?.role || '' : demoRole; }
 function isBedaEditor() { return activeRole() === 'beda'; }
-function canManageProjectFiles() { return ['beda', 'aedas', 'contractor'].includes(activeRole()); }
+function canOpenProjectFiles() { return backendConfigured ? Boolean(authenticatedProfile) : Boolean(activeRole()); }
+function canManageProjectFiles() { return isBedaEditor(); }
 let authApplyRevision = 0;
 const authMessage = document.getElementById('authMessage');
 if (backendConfigured && !backendEnabled) authMessage.textContent = backendInitError;
@@ -558,7 +571,11 @@ async function applyAuthenticationSession(session) {
   if (projectSelect.value && (projectSelect.value !== activeProjectId
       || projectSelect.options[projectSelect.selectedIndex]?.textContent !== activeProjectName)) {
     const selected = projectSelect.options[projectSelect.selectedIndex];
-    setActiveProject(selected.textContent, selected.value);
+    setActiveProject(selected.textContent, selected.value, {
+      sourcePath: selected.dataset.yandexPath || null,
+      contractorCode: selected.dataset.contractorCode || null,
+      canonicalKey: selected.dataset.canonicalKey || null
+    });
     unloadDisplayedProject();
   } else if (!projectSelect.value && activeProjectId !== 'no-authorized-projects') {
     unloadDisplayedProject();
@@ -626,10 +643,10 @@ function applyDemoRole() {
   if (role === 'contractor') {
     const contractor = backendEnabled ? authenticatedProfile?.contractor_code : demoContractor;
     fieldRoleNotice.textContent = `TAŞERON / ${contractor || 'hesap'}: yalnızca Yandex Disk’te kendi klasöründeki projeleri görüntüleyebilir.`;
-    fieldReadOnlyNotice.textContent = 'Saha kayıtları yalnızca BEDA hesabına açıktır.';
+    fieldReadOnlyNotice.textContent = 'Saha kayıtları görüntülenebilir; düzeltme yetkisi yalnızca BEDA hesabında.';
   } else if (role === 'aedas') {
     fieldRoleNotice.textContent = 'AEDAŞ: tüm proje çizimlerini görüntüleyebilir.';
-    fieldReadOnlyNotice.textContent = 'Saha kayıtları yalnızca BEDA hesabına açıktır.';
+    fieldReadOnlyNotice.textContent = 'Saha kayıtları görüntülenebilir; düzeltme yetkisi yalnızca BEDA hesabında.';
   } else if (role === 'beda') {
     fieldRoleNotice.textContent = 'BEDA: tüm kayıtları görüntüleyebilir, ekleyebilir, düzeltebilir ve silebilir.';
     fieldReadOnlyNotice.textContent = '';
@@ -637,7 +654,10 @@ function applyDemoRole() {
     fieldRoleNotice.textContent = backendConfigured ? 'Hesabın için yetki profili bulunamadı.' : '';
     fieldReadOnlyNotice.textContent = '';
   }
-  for (const id of ['clearMap', 'uploadButton', 'loadDisk', 'saveProjectBundle']) document.getElementById(id).hidden = !isBedaEditor();
+  for (const id of ['uploadButton', 'saveProjectBundle', 'saveProjectBundleToYandex']) document.getElementById(id).hidden = !isBedaEditor();
+  // AEDAŞ and contractors can open their permitted packages; write actions
+  // remain BEDA-only and are also protected by database policies.
+  document.getElementById('loadDisk').hidden = backendEnabled && !authenticatedProfile;
   const downloadBundle = document.getElementById('downloadProjectBundle');
   if (!isBedaEditor()) downloadBundle.hidden = true;
   document.getElementById('sharedProjects').hidden = !backendEnabled || !authenticatedProfile;
@@ -651,6 +671,17 @@ function applyDemoRole() {
     privacyNotes[0].textContent = 'Deneme sürümünde saha kayıtları bu tarayıcıda tutulur. “Tüm projeyi paketle” DXF ve fotoğrafları tek dosyaya alır; bu paketi Yandex Disk’e yükleyip daha sonra buradan açabilirsin.';
     privacyNotes[1].hidden = false;
   }
+  const projectOwner = projectContractorCode();
+  const ownerLabel = document.querySelector('label[for="fieldOwner"]');
+  if (projectOwner) {
+    fieldOwnerInput.value = projectOwner;
+    fieldOwnerInput.disabled = true;
+    if (ownerLabel) ownerLabel.textContent = `İşin taşeronu · proje metadata: ${projectOwner}`;
+  } else {
+    fieldOwnerInput.disabled = false;
+    if (ownerLabel) ownerLabel.textContent = 'İşin taşeronu';
+  }
+  if (typeof renderInspectionDashboard === 'function') renderInspectionDashboard();
 }
 fieldUserRoleInput.addEventListener('change', () => {
   if (backendConfigured) { applyDemoRole(); return; }
@@ -689,10 +720,11 @@ fieldStatusInput.addEventListener('change', renderFieldStatusWarning);
 function fieldDb() {
   if (!('indexedDB' in window)) return Promise.reject(new Error('Bu tarayıcı kayıt saklamayı desteklemiyor.'));
   if (!fieldDbPromise) fieldDbPromise = new Promise((resolve, reject) => {
-    const request = indexedDB.open(FIELD_DB_NAME, 1);
+    const request = indexedDB.open(FIELD_DB_NAME, 2);
     request.onupgradeneeded = () => {
       const db = request.result;
       if (!db.objectStoreNames.contains(FIELD_STORE)) db.createObjectStore(FIELD_STORE, { keyPath: 'id' });
+      if (!db.objectStoreNames.contains(INSPECTION_STORE)) db.createObjectStore(INSPECTION_STORE, { keyPath: 'projectId' });
     };
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error || new Error('Saha kayıt deposu açılamadı.'));
@@ -713,18 +745,35 @@ async function fieldRequest(mode, action) {
     tx.onabort = () => reject(tx.error || new Error('Saha kaydı kaydedilemedi.'));
   });
 }
+async function inspectionRequest(mode, action) {
+  const db = await fieldDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(INSPECTION_STORE, mode), store = tx.objectStore(INSPECTION_STORE);
+    let request;
+    try { request = action(store); } catch (error) { reject(error); return; }
+    let result;
+    request.onsuccess = () => { result = request.result; };
+    request.onerror = () => reject(request.error || new Error('Denetim verisi okunamadı.'));
+    tx.oncomplete = () => resolve(result);
+    tx.onerror = () => reject(tx.error || new Error('Denetim verisi kaydedilemedi.'));
+    tx.onabort = () => reject(tx.error || new Error('Denetim verisi kaydedilemedi.'));
+  });
+}
 async function getProjectRecords(projectId = activeProjectId) {
   if (backendEnabled) {
-    if (!authenticatedSession || authenticatedProfile?.role !== 'beda') return [];
+    if (!authenticatedSession || !authenticatedProfile) return [];
     const { data, error } = await supabaseClient.from('field_records').select('*').eq('project_id', projectId).order('created_at', { ascending: false });
     if (error) throw error;
-    return (data || []).map(record => ({
+    const remote = (data || []).map(record => ({
       id: record.id, projectId: record.project_id, projectName: activeProjectName,
       lat: record.lat, lon: record.lon, title: record.title, category: record.category,
       status: record.status, assignedContractor: normalizeContractorCode(record.assigned_contractor || ''), notes: record.notes || '',
       createdAt: Date.parse(record.created_at), updatedAt: record.updated_at ? Date.parse(record.updated_at) : null,
       photoPath: record.photo_path || null, photoName: record.photo_name || '', photoType: record.photo_type || ''
     }));
+    const byId = new Map((sessionBundleRecords.get(projectId) || []).map(record => [record.id, record]));
+    for (const record of remote) byId.set(record.id, record);
+    return [...byId.values()].sort((a, b) => b.createdAt - a.createdAt);
   }
   const all = await fieldRequest('readonly', store => store.getAll());
   return demoRole === 'beda' ? all.filter(record => record.projectId === projectId)
@@ -737,17 +786,33 @@ async function moveProjectRecords(fromId, toId, projectName) {
   const records = await getProjectRecords(fromId);
   for (const record of records) await fieldRequest('readwrite', store => store.put({ ...record, projectId: toId, projectName }));
 }
-function setActiveProject(name, id) {
+function setActiveProject(name, id, metadata = {}) {
   activeProjectName = String(name || 'Saha Denemesi').replace(/\.dxf$/i, '').trim() || 'Saha Denemesi';
   activeProjectId = id || 'local-' + activeProjectName.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 70);
+  const contractorCode = normalizeContractorCode(metadata.contractorCode || metadata.contractor_code || yandexFolderForPath(metadata.sourcePath || '')?.replace('disk:/PROJELER/', '') || '');
+  activeProjectMeta = {
+    canonicalKey: metadata.canonicalKey || metadata.canonical_key || null,
+    contractorCode: FIELD_CONTRACTORS.includes(contractorCode) ? contractorCode : null,
+    sourcePath: metadata.sourcePath || metadata.source_path || null
+  };
   localStorage.setItem('dxf-active-project-id', activeProjectId);
   localStorage.setItem('dxf-active-project-name', activeProjectName);
   fieldProjectLabel.textContent = 'Proje: ' + activeProjectName;
+  const inspectionProjectLabel = document.getElementById('inspectionProjectLabel');
+  if (inspectionProjectLabel) inspectionProjectLabel.textContent = 'Proje: ' + activeProjectName;
+  if (typeof applyDemoRole === 'function') applyDemoRole();
+  if (typeof refreshInspectionData === 'function') void refreshInspectionData();
 }
 async function refreshSharedProjects() {
   if (!backendEnabled || !authenticatedProfile) return;
   const select = document.getElementById('sharedProjectSelect');
-  const { data, error } = await supabaseClient.from('projects').select('id,name').order('name');
+  let response = await supabaseClient.from('projects').select('id,name,yandex_path,contractor_code,canonical_key').order('name');
+  // Old databases can still show existing projects while the additive
+  // inspection migration is waiting to be applied.
+  if (response.error && /contractor_code|canonical_key/i.test(response.error.message || '')) {
+    response = await supabaseClient.from('projects').select('id,name,yandex_path').order('name');
+  }
+  const { data, error } = response;
   if (error) {
     select.replaceChildren();
     document.getElementById('yandexMessage').textContent = error.message;
@@ -760,7 +825,10 @@ async function refreshSharedProjects() {
     return;
   }
     for (const project of projects) {
-      const option = document.createElement('option'); option.value = project.id; option.textContent = project.name;
+    const option = document.createElement('option'); option.value = project.id; option.textContent = project.name;
+    option.dataset.yandexPath = project.yandex_path || '';
+    option.dataset.contractorCode = project.contractor_code || '';
+    option.dataset.canonicalKey = project.canonical_key || '';
       select.append(option);
     }
   if (projects.some(project => project.id === activeProjectId)) select.value = activeProjectId;
@@ -775,6 +843,9 @@ function unloadDisplayedProject() {
   loadedFiles.textContent = 'Henüz dosya yüklenmedi';
   if (fieldDraftMarker) { map.removeLayer(fieldDraftMarker); fieldDraftMarker = null; }
   fieldDraftLocation = null; fieldLocationStatus.textContent = 'Konum seçilmedi.';
+  inspectionMarkerLayer.clearLayers();
+  selectedInspectionTarget = null;
+  inspectionPickType = null;
 }
 async function openSharedProject() {
   if (!backendEnabled || !authenticatedProfile) return;
@@ -784,7 +855,11 @@ async function openSharedProject() {
   const projectName = option?.textContent || projectId;
   const { data: files, error } = await supabaseClient.from('project_files').select('*').eq('project_id', projectId).order('created_at');
   if (error) { showToast('Ortak proje dosyaları okunamadı: ' + error.message); return; }
-  unloadDisplayedProject(); setActiveProject(projectName, projectId);
+  unloadDisplayedProject(); setActiveProject(projectName, projectId, {
+    sourcePath: option?.dataset.yandexPath || null,
+    contractorCode: option?.dataset.contractorCode || null,
+    canonicalKey: option?.dataset.canonicalKey || null
+  });
   const done = [];
   for (const entry of files || []) {
     const { data: blob, error: downloadError } = await supabaseClient.storage.from('project-files').download(entry.storage_path);
@@ -805,9 +880,16 @@ async function ensureRemoteProject(yandexPath = null) {
   if (!backendEnabled) return;
   if (!authenticatedProfile || !canManageProjectFiles()) throw new Error('Proje oluşturma yetkin yok.');
   const ownFolder = activeRole() === 'contractor' ? `disk:/PROJELER/${authenticatedProfile.contractor_code}` : null;
-  if (ownFolder && yandexPath && yandexPath !== ownFolder) throw new Error('Taşeron yalnızca kendi Yandex klasörüne ait proje yükleyebilir.');
-  const project = { id: activeProjectId, name: activeProjectName, created_by: authenticatedProfile.user_id };
-  if (ownFolder || yandexPath) project.yandex_path = ownFolder || yandexPath;
+  const folder = ownFolder || yandexPath || activeProjectMeta.sourcePath && yandexFolderForPath(activeProjectMeta.sourcePath);
+  if (ownFolder && folder && folder !== ownFolder) throw new Error('Taşeron yalnızca kendi Yandex klasörüne ait proje yükleyebilir.');
+  const contractorCode = normalizeContractorCode(projectContractorCode() || yandexFolderForPath(folder || '')?.replace('disk:/PROJELER/', '') || '');
+  const project = {
+    id: activeProjectId, name: activeProjectName, created_by: authenticatedProfile.user_id,
+    canonical_key: activeProjectMeta.canonicalKey || null,
+    contractor_code: FIELD_CONTRACTORS.includes(contractorCode) ? contractorCode : null,
+    metadata: { inspectionConfigVersion: INSPECTION_CONFIG.version, sourcePath: activeProjectMeta.sourcePath || null }
+  };
+  if (folder) project.yandex_path = folder;
   const { error } = await supabaseClient.from('projects').upsert(project, { onConflict: 'id' });
   if (error) throw error;
 }
@@ -893,13 +975,15 @@ async function browseYandexProjects() {
           const blob = await callYandexBridge({ action: 'download', path: item.path }, true);
           const file = new File([blob], item.name, { type: item.mimeType || 'application/octet-stream', lastModified: Date.now() });
           if (/\.(dxfproj|zip)$/i.test(file.name)) {
-            if (!authenticatedProfile) throw new Error('Önce giriş yap.');
             await importProjectBundle(file, item.path);
           }
           else {
             unloadDisplayedProject();
             const projectName = file.name.replace(/\.(dxf|kmz|kml)$/i, '');
-            setActiveProject(projectName, yandexProjectId(projectName, item.path));
+            const identity = file.name.toLowerCase().endsWith('.dxf')
+              ? await resolveRawProjectIdentity(file, item.path)
+              : { id: yandexProjectId(projectName, item.path), canonicalKey: null, contractorCode: item.contractorCode, sourcePath: item.path };
+            setActiveProject(projectName, identity.id, identity);
             const count = file.name.toLowerCase().endsWith('.dxf') ? await parseDxf(file) : await parseKml(file);
             if (canManageProjectFiles()) await storeRemoteProjectFile(file, item.path);
             loadedFiles.textContent = `${file.name} (${count} nesne)`;
@@ -932,6 +1016,25 @@ document.getElementById('yandexFolderSetupButton').addEventListener('click', asy
       : 'Beş taşeron klasörü Yandex Disk’te hazır.';
     await browseYandexProjects();
   } catch (error) { message.textContent = error.message || 'Yandex klasörleri hazırlanamadı.'; }
+  finally { button.disabled = false; }
+});
+document.getElementById('saveProjectBundleToYandex').addEventListener('click', async event => {
+  if (!isBedaEditor()) { showToast('Yandex paket güncelleme yetkisi yalnızca BEDA hesabında.'); return; }
+  if (!generatedProjectBundleBlob) { showToast('Önce “Tüm projeyi paketle” ile güncel paketi oluştur.'); return; }
+  const contractor = projectContractorCode();
+  if (!contractor) { showToast('Yandex’e kaydetmek için proje önce bir taşeron klasörüne bağlanmalı.'); return; }
+  const button = event.currentTarget; button.disabled = true;
+  try {
+    const path = `disk:/PROJELER/${contractor}/${safeFileName(activeProjectName)}.dxfproj.zip`;
+    const link = await callYandexBridge({ action: 'create-upload', path, overwrite: true });
+    if (!link?.href || !String(link.href).startsWith('https://')) throw new Error('Yandex yükleme bağlantısı alınamadı.');
+    const response = await fetch(link.href, { method: 'PUT', body: generatedProjectBundleBlob, headers: { 'Content-Type': 'application/zip' } });
+    if (!response.ok) throw new Error(`Yandex paketi kaydedemedi (HTTP ${response.status}).`);
+    await ensureRemoteProject(`disk:/PROJELER/${contractor}`);
+    const { error } = await supabaseClient.from('projects').update({ package_storage_path: path, package_updated_at: new Date().toISOString() }).eq('id', activeProjectId);
+    if (error) throw error;
+    showToast('Güncel proje paketi Yandex Disk’e kaydedildi.');
+  } catch (error) { showToast(error.message || 'Yandex paketi kaydedilemedi.'); }
   finally { button.disabled = false; }
 });
 function newObjectUrl(blob) {
@@ -1089,6 +1192,39 @@ function yandexProjectId(projectName, sourcePath) {
   const slug = safeFileName(`${idContractor ? idContractor + '-' : ''}${baseName}`).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
   return `yandex-${slug || 'proje'}`;
 }
+function projectContractorCode() {
+  if (FIELD_CONTRACTORS.includes(activeProjectMeta.contractorCode)) return activeProjectMeta.contractorCode;
+  if (activeRole() === 'contractor' && FIELD_CONTRACTORS.includes(authenticatedProfile?.contractor_code)) return authenticatedProfile.contractor_code;
+  return null;
+}
+async function contentFingerprint(file) {
+  const data = await file.arrayBuffer();
+  if (!crypto?.subtle) return `name:${safeFileName(file.name)}:${file.size}`;
+  const digest = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(digest)).map(byte => byte.toString(16).padStart(2, '0')).join('');
+}
+async function resolveRawProjectIdentity(file, sourcePath = null) {
+  const canonicalKey = await contentFingerprint(file);
+  const fallbackId = `dxf-${canonicalKey.replace(/[^a-f0-9]/g, '').slice(0, 32) || safeFileName(file.name).toLowerCase()}`;
+  const projectName = file.name.replace(/\.(dxf|kml|kmz)$/i, '');
+  const contractorCode = normalizeContractorCode(yandexFolderForPath(sourcePath)?.replace('disk:/PROJELER/', '') || '');
+  if (backendEnabled && authenticatedProfile) {
+    const canonical = await supabaseClient.from('projects').select('id,canonical_key,contractor_code,yandex_path').eq('canonical_key', canonicalKey).maybeSingle();
+    if (!canonical.error && canonical.data?.id) return {
+      id: canonical.data.id, canonicalKey, contractorCode: canonical.data.contractor_code || contractorCode, sourcePath
+    };
+    // Legacy Yandex records did not have a fingerprint. Keep their ID, then
+    // fill canonical_key on the next BEDA save so later local opens match.
+    if (sourcePath) {
+      const legacyId = yandexProjectId(projectName, sourcePath);
+      const legacy = await supabaseClient.from('projects').select('id,canonical_key,contractor_code,yandex_path').eq('id', legacyId).maybeSingle();
+      if (!legacy.error && legacy.data?.id) return {
+        id: legacy.data.id, canonicalKey, contractorCode: legacy.data.contractor_code || contractorCode, sourcePath
+      };
+    }
+  }
+  return { id: fallbackId, canonicalKey, contractorCode: FIELD_CONTRACTORS.includes(contractorCode) ? contractorCode : null, sourcePath };
+}
 function mimeTypeForPhoto(name, declaredType = '') {
   if (declaredType.startsWith('image/')) return declaredType;
   const extension = String(name || '').split('.').pop().toLowerCase();
@@ -1112,7 +1248,7 @@ async function refreshFieldRecords() {
   if (fieldDraftMarker) { map.removeLayer(fieldDraftMarker); fieldDraftMarker = null; }
   try {
     const records = await getProjectRecords();
-    if (!records.length) { const empty = document.createElement('div'); empty.className = 'message'; empty.textContent = activeRole() === 'beda' ? 'Henüz saha kaydı yok.' : 'Saha kayıtlarına yalnızca BEDA hesabı erişebilir.'; fieldRecordList.append(empty); return; }
+    if (!records.length) { const empty = document.createElement('div'); empty.className = 'message'; empty.textContent = 'Bu projede henüz saha kaydı yok.'; fieldRecordList.append(empty); return; }
     for (const record of records) {
       const status = fieldStatusInfo(record.status);
       const photoUrl = await getFieldPhotoUrl(record);
@@ -1186,7 +1322,7 @@ document.getElementById('saveFieldRecord').addEventListener('click', async () =>
       title: fieldTitleInput.value.trim() || fieldPhotoFile.name,
       category: document.getElementById('fieldCategory').value,
       status: savedStatus,
-      assignedContractor: fieldOwnerInput.value,
+      assignedContractor: projectContractorCode() || fieldOwnerInput.value,
       notes: fieldNotesInput.value.trim(), createdAt: Date.now(),
       photo: fieldPhotoFile, photoName: fieldPhotoFile.name, photoType: fieldPhotoFile.type
     };
@@ -1213,11 +1349,11 @@ document.getElementById('saveProjectBundle').addEventListener('click', async eve
     const records = await getProjectRecords();
     const zip = new JSZip();
     const manifest = {
-      format: 'dxf-field-project', schemaVersion: 1,
-      project: { id: activeProjectId, name: activeProjectName },
+      format: 'dxf-field-project', schemaVersion: 2,
+      project: { id: activeProjectId, name: activeProjectName, canonicalKey: activeProjectMeta.canonicalKey || null, contractorCode: projectContractorCode() || null },
       savedAt: new Date().toISOString(),
       map: { center: [map.getCenter().lat, map.getCenter().lng], zoom: map.getZoom(), crs: selectedCrs() },
-      dxfFiles: [], records: []
+      dxfFiles: [], records: [], inspection: null
     };
     for (let i = 0; i < dxfEntries.length; i++) {
       const file = dxfEntries[i], path = `dxf/${String(i + 1).padStart(3, '0')}-${safeFileName(file.name)}`;
@@ -1242,8 +1378,10 @@ document.getElementById('saveProjectBundle').addEventListener('click', async eve
       const { photo, ...metadata } = record;
       manifest.records.push({ ...metadata, photoPath, photoSize });
     }
+    manifest.inspection = await buildInspectionPackageSnapshot(zip);
     zip.file('project.json', JSON.stringify(manifest, null, 2));
     const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 3 } });
+    generatedProjectBundleBlob = blob;
     if (generatedProjectBundleUrl) URL.revokeObjectURL(generatedProjectBundleUrl);
     generatedProjectBundleUrl = URL.createObjectURL(blob);
     const anchor = document.getElementById('downloadProjectBundle');
@@ -1258,22 +1396,40 @@ document.getElementById('saveProjectBundle').addEventListener('click', async eve
 });
 
 async function importProjectBundle(file, sourcePath = null) {
-  if (!authenticatedProfile) throw new Error('Önce giriş yap.');
+  if (!authenticatedProfile) throw new Error('Proje paketini açmak için giriş yap.');
   showToast('Proje paketi açılıyor…');
   const zip = await JSZip.loadAsync(file);
   const manifestFile = zip.file('project.json');
   if (!manifestFile) throw new Error('Bu ZIP içinde project.json yok. “Tüm projeyi paketle” ile oluşturulan dosyayı seç.');
   const manifest = JSON.parse(await manifestFile.async('string'));
-  if (manifest.format !== 'dxf-field-project' || manifest.schemaVersion !== 1) throw new Error('Proje paketi biçimi desteklenmiyor.');
-  if (!manifest.project?.id || !Array.isArray(manifest.records) || !Array.isArray(manifest.dxfFiles)) throw new Error('Proje paketi eksik veya bozuk.');
+  if (manifest.format !== 'dxf-field-project' || ![1, 2].includes(Number(manifest.schemaVersion))) throw new Error('Proje paketi biçimi desteklenmiyor.');
+  if (!Array.isArray(manifest.records) || !Array.isArray(manifest.dxfFiles)) throw new Error('Proje paketi eksik veya bozuk.');
   const dxfEntries = manifest.dxfFiles.filter(item => item?.name && /\.dxf$/i.test(item.name));
   const projectName = dxfEntries.length === 1
     ? dxfEntries[0].name.replace(/\.dxf$/i, '')
-    : manifest.project.name;
-  const projectId = manifest.project?.id || (sourcePath ? yandexProjectId(projectName, sourcePath) : null);
+    : manifest.project?.name || file.name.replace(/\.(dxfproj|zip)$/i, '');
+  // Keep the package's canonical project id so its field records and photos
+  // continue to resolve to the same project when opened from Yandex. Legacy
+  // packages had no canonical key; derive theirs from the enclosed DXF, never
+  // from the ZIP container, so the same drawing opened directly also resolves
+  // to this package's historical project id.
+  let canonicalKey = manifest.project?.canonicalKey || manifest.project?.canonical_key || null;
+  if (!canonicalKey && dxfEntries.length) {
+    const primaryDxf = zip.file(dxfEntries[0].path);
+    if (primaryDxf) {
+      const bytes = await primaryDxf.async('arraybuffer');
+      canonicalKey = await contentFingerprint(new File([bytes], dxfEntries[0].name, { type: 'application/dxf' }));
+    }
+  }
+  if (!canonicalKey) canonicalKey = `bundle-${await contentFingerprint(file)}`;
+  const projectId = manifest.project?.id || `bundle-${canonicalKey.replace(/[^a-f0-9]/g, '').slice(0, 32)}`;
   document.getElementById('clearMap').click();
-  setActiveProject(projectName, projectId);
-  if (backendEnabled) await ensureRemoteProject(yandexFolderForPath(sourcePath));
+  setActiveProject(projectName, projectId, {
+    canonicalKey,
+    contractorCode: manifest.project?.contractorCode || manifest.project?.contractor_code || yandexFolderForPath(sourcePath || '')?.replace('disk:/PROJELER/', ''),
+    sourcePath
+  });
+  if (backendEnabled && isBedaEditor()) await ensureRemoteProject(yandexFolderForPath(sourcePath));
   if (manifest.map?.crs) {
     document.querySelectorAll('[data-datum]').forEach(button => button.classList.toggle('selected', button.dataset.datum.includes(manifest.map.crs.datum)));
     document.querySelectorAll('.dom-grid button').forEach(button => button.classList.toggle('selected', Number(button.textContent) === Number(manifest.map.crs.cm)));
@@ -1286,7 +1442,7 @@ async function importProjectBundle(file, sourcePath = null) {
     if (!entry) { done.push(`${item.name} — pakette bulunamadı`); continue; }
     const data = await entry.async('arraybuffer');
     const dxf = new File([data], item.name, { type: 'application/dxf', lastModified: Date.now() });
-    try { const count = await parseDxf(dxf); if (backendEnabled) await storeRemoteProjectFile(dxf, sourcePath || item.path); done.push(`${item.name} (${count} nesne)`); }
+    try { const count = await parseDxf(dxf); if (backendEnabled && isBedaEditor()) await storeRemoteProjectFile(dxf, sourcePath || item.path); done.push(`${item.name} (${count} nesne)`); }
     catch (error) { console.error(error); done.push(`${item.name} — açılamadı`); }
   }
   let importedRecords = 0;
@@ -1302,20 +1458,433 @@ async function importProjectBundle(file, sourcePath = null) {
       }
     }
     const { photoPath, ...metadata } = record;
-    if (backendEnabled) {
+    if (backendEnabled && isBedaEditor()) {
       const recordId = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(metadata.id || '')) ? metadata.id : makeRecordId();
       const normalizedContractor = normalizeContractorCode(metadata.assignedContractor);
       const contractor = FIELD_CONTRACTORS.includes(normalizedContractor) ? normalizedContractor : '';
       await saveRemoteFieldRecord({ ...metadata, id: recordId, projectId: activeProjectId, projectName: activeProjectName, assignedContractor: contractor, photo, createdAt: metadata.createdAt || Date.now() });
+    } else if (backendEnabled) {
+      const visibleRecord = { ...metadata, assignedContractor: normalizeContractorCode(metadata.assignedContractor || ''), projectId: activeProjectId, projectName: activeProjectName, photo };
+      const records = sessionBundleRecords.get(activeProjectId) || [];
+      sessionBundleRecords.set(activeProjectId, [...records.filter(item => item.id !== visibleRecord.id), visibleRecord]);
     } else await fieldRequest('readwrite', store => store.put({ ...metadata, assignedContractor: normalizeContractorCode(metadata.assignedContractor || ''), projectId: activeProjectId, projectName: activeProjectName, photo }));
     importedRecords++;
   }
   await refreshFieldRecords();
+  if (manifest.inspection) await importPackageInspectionSnapshot(manifest.inspection, zip);
+  else await refreshInspectionData();
   if (backendEnabled) await refreshSharedProjects();
   if (manifest.map?.center?.length === 2 && manifest.map.center.every(Number.isFinite)) map.setView(manifest.map.center, Number(manifest.map.zoom) || 15);
   loadedFiles.textContent = done.length ? done.join(' · ') : 'DXF yok · saha kayıtları yüklendi';
   showToast(`Proje açıldı · ${done.length} DXF, ${importedRecords} saha kaydı.`);
 }
+
+/* -------------------------------------------------------------------------
+   Inspection domain.  It is deliberately separate from the old photo/note
+   field_records flow so legacy records, packages and marker behaviour stay
+   intact while new inspections can be added gradually.                         */
+const inspectionPanel = document.getElementById('inspectionPanel');
+const inspectionSummary = document.getElementById('inspectionSummary');
+const inspectionSelection = document.getElementById('inspectionSelection');
+const inspectionEditor = document.getElementById('inspectionEditor');
+const inspectionChecklist = document.getElementById('inspectionChecklist');
+const inspectionHistory = document.getElementById('inspectionHistory');
+const inspectionNote = document.getElementById('inspectionNote');
+const inspectionPhotoInput = document.getElementById('inspectionPhotoInput');
+const inspectionPhotoStage = document.getElementById('inspectionPhotoStage');
+const inspectionPermissionNotice = document.getElementById('inspectionPermissionNotice');
+
+function emptyInspectionState(projectId = activeProjectId) {
+  return { projectId, elements: new Map(), points: [], results: [], nonconformities: [], events: [], attachments: [], localOnly: !backendEnabled };
+}
+function inspectionChecklistFor(target = selectedInspectionTarget) {
+  return INSPECTION_CONFIG.checklists?.[target?.pointType === 'underground' || target?.elementType === 'underground_route' ? 'underground' : 'pole'] || null;
+}
+function inspectionItems(checklist) {
+  return (checklist?.groups || []).flatMap(group => (group.items || []).map(item => ({ ...item, groupId: group.id, groupLabel: group.label })));
+}
+function inspectionPointForTarget(target = selectedInspectionTarget) {
+  if (!target) return null;
+  if (target.pointId) return inspectionState.points.find(point => point.id === target.pointId) || null;
+  return inspectionState.points.find(point => point.elementId === target.elementId && point.pointType === target.pointType) || null;
+}
+function inspectionStatus(target) {
+  const point = inspectionPointForTarget(target);
+  if (!point) return 'not-checked';
+  const related = inspectionState.nonconformities.filter(item => item.pointId === point.id && item.state !== 'closed');
+  if (related.some(item => item.state === 'active')) return 'non-compliant';
+  if (related.some(item => item.state === 'correction_pending')) return 'correction-pending';
+  const results = inspectionState.results.filter(item => item.pointId === point.id);
+  if (results.some(item => item.completionStatus === 'DONE' && item.qualityStatus === 'COMPLIANT')) return 'compliant';
+  return 'not-checked';
+}
+function statusMatchesFilter(status) {
+  return inspectionFilter === 'all'
+    || inspectionFilter === 'noncompliant' && status === 'non-compliant'
+    || inspectionFilter === 'pending' && status === 'correction-pending'
+    || inspectionFilter === 'compliant' && status === 'compliant'
+    || inspectionFilter === 'unchecked' && status === 'not-checked';
+}
+function markerIcon(target, status) {
+  const kind = target.pointType === 'underground' || target.elementType === 'underground_route' ? 'underground' : target.elementType === 'manual' ? 'manual' : 'pole';
+  return L.divIcon({ className: '', iconSize: [18, 18], iconAnchor: [9, 9], html: `<span class="inspection-marker ${kind} ${status}"></span>` });
+}
+function renderInspectionMarkers() {
+  inspectionMarkerLayer.clearLayers();
+  const targets = [];
+  for (const element of inspectionState.elements.values()) targets.push({ ...element, pointType: element.elementType === 'underground_route' ? 'underground' : 'pole' });
+  for (const point of inspectionState.points.filter(point => !point.elementId)) targets.push({ ...point, pointId: point.id, elementType: 'manual' });
+  for (const target of targets) {
+    if (!Number.isFinite(target.lat) || !Number.isFinite(target.lon)) continue;
+    const status = inspectionStatus(target);
+    if (!statusMatchesFilter(status)) continue;
+    const marker = L.marker([target.lat, target.lon], { pane: 'fieldMarkerPane', icon: markerIcon(target, status), keyboard: true, title: target.label || 'Saha kontrol noktası' });
+    marker.on('click', () => selectInspectionTarget(target));
+    marker.addTo(inspectionMarkerLayer);
+  }
+}
+function inspectionSummaryCounts() {
+  const targets = [...inspectionState.elements.values()].map(element => ({ ...element, pointType: element.elementType === 'underground_route' ? 'underground' : 'pole' }))
+    .concat(inspectionState.points.filter(point => !point.elementId).map(point => ({ ...point, pointId: point.id, elementType: 'manual' })));
+  return targets.reduce((counts, target) => {
+    counts.total++;
+    const status = inspectionStatus(target);
+    if (status === 'compliant') counts.compliant++;
+    else if (status === 'non-compliant') counts.nonCompliant++;
+    else if (status === 'correction-pending') counts.pending++;
+    else counts.unchecked++;
+    return counts;
+  }, { total: 0, compliant: 0, nonCompliant: 0, pending: 0, unchecked: 0 });
+}
+function renderInspectionSummary() {
+  const counts = inspectionSummaryCounts();
+  inspectionSummary.replaceChildren();
+  const cards = [
+    [counts.total, 'TOPLAM'], [counts.unchecked, 'KONTROL YOK'], [counts.compliant, 'UYGUN'],
+    [counts.nonCompliant, 'UYGUNSUZ'], [counts.pending, 'DÜZELTME']
+  ];
+  if (INSPECTION_CONFIG.settings?.progressEnabled) cards.push([counts.total ? '%' + Math.round((counts.compliant + counts.nonCompliant + counts.pending) / counts.total * 100) : '%0', 'İLERLEME']);
+  for (const [value, label] of cards) {
+    const card = document.createElement('div'); const strong = document.createElement('strong'); const span = document.createElement('span');
+    strong.textContent = String(value); span.textContent = label; card.append(strong, span); inspectionSummary.append(card);
+  }
+}
+function renderInspectionChecklist() {
+  inspectionChecklist.replaceChildren();
+  const checklist = inspectionChecklistFor();
+  if (!selectedInspectionTarget || !checklist) return;
+  const point = inspectionPointForTarget(selectedInspectionTarget);
+  for (const group of checklist.groups || []) {
+    const block = document.createElement('section'); block.className = 'checklist-group';
+    const heading = document.createElement('strong'); heading.textContent = group.label; block.append(heading);
+    for (const item of group.items || []) {
+      const current = inspectionState.results.find(result => result.pointId === point?.id && result.checklistItemId === item.id);
+      const row = document.createElement('div'); row.className = 'checklist-item'; row.dataset.itemId = item.id;
+      const label = document.createElement('div'); label.className = 'checklist-item-label';
+      const title = document.createElement('span'); title.textContent = item.label;
+      const reference = document.createElement('button'); reference.type = 'button'; reference.textContent = 'NASIL OLMALI?';
+      const help = document.createElement('div'); help.className = 'checklist-reference'; help.hidden = true;
+      help.textContent = item.technicalNote || Object.entries(item.criteria || {}).map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(', ') : value}`).join(' · ') || 'Bu madde için henüz teknik referans eklenmedi.';
+      reference.addEventListener('click', () => { help.hidden = !help.hidden; }); label.append(title, reference);
+      const controls = document.createElement('div'); controls.className = 'checklist-item-controls';
+      const completion = document.createElement('select'); completion.dataset.completion = item.id; completion.setAttribute('aria-label', `${item.label} imalat durumu`);
+      for (const status of INSPECTION_CONFIG.completionStatuses || []) { const option = document.createElement('option'); option.value = status.id; option.textContent = status.label; completion.append(option); }
+      completion.value = current?.completionStatus || 'NOT_DONE';
+      const quality = document.createElement('select'); quality.dataset.quality = item.id; quality.setAttribute('aria-label', `${item.label} kalite durumu`);
+      for (const status of INSPECTION_CONFIG.qualityStatuses || []) { const option = document.createElement('option'); option.value = status.id; option.textContent = status.label; quality.append(option); }
+      quality.value = current?.qualityStatus || 'NOT_CHECKED';
+      const syncQuality = () => { quality.disabled = completion.value !== 'DONE'; if (quality.disabled) quality.value = 'NOT_CHECKED'; };
+      completion.addEventListener('change', syncQuality); syncQuality(); controls.append(completion, quality);
+      row.append(label, controls, help); block.append(row);
+    }
+    inspectionChecklist.append(block);
+  }
+}
+async function inspectionAttachmentUrl(attachment) {
+  if (attachment.blob) {
+    const url = URL.createObjectURL(attachment.blob); inspectionObjectUrls.add(url); return url;
+  }
+  if (!backendEnabled || !attachment.storagePath) return null;
+  const { data, error } = await supabaseClient.storage.from('inspection-photos').createSignedUrl(attachment.storagePath, 900);
+  if (error) return null;
+  return data?.signedUrl || null;
+}
+function renderInspectionHistory() {
+  inspectionHistory.replaceChildren();
+  const point = inspectionPointForTarget();
+  if (!point) { const empty = document.createElement('div'); empty.className = 'message'; empty.textContent = 'Henüz seçili kontrol noktası yok.'; inspectionHistory.append(empty); return; }
+  const records = inspectionState.nonconformities.filter(item => item.pointId === point.id).sort((a, b) => Date.parse(b.updatedAt || b.createdAt || 0) - Date.parse(a.updatedAt || a.createdAt || 0));
+  if (!records.length) { const empty = document.createElement('div'); empty.className = 'message'; empty.textContent = 'Bu noktada uygunsuzluk kaydı yok.'; inspectionHistory.append(empty); return; }
+  for (const record of records) {
+    const card = document.createElement('article'); card.className = `nonconformity-card ${record.state === 'correction_pending' ? 'pending' : record.state === 'closed' ? 'closed' : ''}`;
+    const heading = document.createElement('strong'); heading.textContent = `${record.state === 'closed' ? '🟢 KAPATILDI' : record.state === 'correction_pending' ? '🟡 DÜZELTME BEKLİYOR' : '🔴 UYGUNSUZ'}`;
+    const text = document.createElement('p'); text.textContent = record.description || 'Açıklama girilmemiş.';
+    const date = document.createElement('small'); date.textContent = new Date(record.updatedAt || record.createdAt || Date.now()).toLocaleString('tr-TR');
+    card.append(heading, text, date);
+    const related = inspectionState.attachments.filter(item => item.nonconformityId === record.id);
+    if (related.length) {
+      const files = document.createElement('small'); files.textContent = related.map(item => `${item.stage === 'after' ? 'SONRA' : 'ÖNCE'}: ${item.fileName}`).join(' · '); card.append(files);
+      const photos = document.createElement('div'); photos.className = 'nonconformity-photos';
+      for (const attachment of related) {
+        const figure = document.createElement('figure'); const caption = document.createElement('figcaption');
+        caption.textContent = attachment.stage === 'after' ? 'SONRA' : 'ÖNCE'; figure.append(caption);
+        void inspectionAttachmentUrl(attachment).then(url => {
+          if (!url) return;
+          const image = document.createElement('img'); image.src = url; image.alt = `${caption.textContent} fotoğrafı`; figure.insertBefore(image, caption);
+        });
+        photos.append(figure);
+      }
+      card.append(photos);
+    }
+    if (isBedaEditor() && record.state !== 'closed') {
+      const next = document.createElement('button'); next.type = 'button';
+      next.textContent = record.state === 'active' ? 'DÜZELTME BEKLİYOR OLARAK İŞARETLE' : 'UYGUN / KAPAT';
+      next.addEventListener('click', () => updateNonconformityState(record, record.state === 'active' ? 'correction_pending' : 'closed'));
+      card.append(next);
+    }
+    inspectionHistory.append(card);
+  }
+}
+function renderInspectionSelection() {
+  const target = selectedInspectionTarget;
+  inspectionEditor.hidden = !target;
+  if (!target) {
+    inspectionSelection.textContent = 'DXF üzerinde algılanan bir direğe ya da yeraltı kontrol noktasına dokun. Algılanamayan yer için manuel nokta ekleyebilirsin.';
+    inspectionPermissionNotice.textContent = isBedaEditor() ? '' : 'Bu hesap yalnızca görüntüleme yapabilir.';
+    renderInspectionHistory(); return;
+  }
+  const status = inspectionStatus(target);
+  inspectionSelection.replaceChildren();
+  const title = document.createElement('strong'); title.textContent = target.label || (target.pointType === 'underground' ? 'Yeraltı kontrol noktası' : 'Direk kontrol noktası');
+  const info = document.createElement('small'); info.textContent = `${target.lat.toFixed(6)}, ${target.lon.toFixed(6)} · ${status === 'not-checked' ? 'Kontrol edilmedi' : status}`;
+  inspectionSelection.append(title, info);
+  inspectionPermissionNotice.textContent = isBedaEditor() ? 'Kayıtlar BEDA hesabı tarafından merkezi projeye yazılır.' : 'Salt okunur erişim: checklist ve uygunsuzluk geçmişini görüntüleyebilirsin.';
+  for (const control of inspectionEditor.querySelectorAll('select,textarea,input,button')) control.disabled = !isBedaEditor();
+  renderInspectionChecklist(); renderInspectionHistory();
+}
+function renderInspectionDashboard() {
+  renderInspectionMarkers(); renderInspectionSummary(); renderInspectionSelection();
+  document.querySelectorAll('[data-inspection-filter]').forEach(button => button.classList.toggle('selected', button.dataset.inspectionFilter === inspectionFilter));
+}
+async function persistLocalInspectionState() {
+  const state = {
+    projectId: activeProjectId, elements: Array.from(inspectionState.elements.values()), points: inspectionState.points,
+    results: inspectionState.results, nonconformities: inspectionState.nonconformities, events: inspectionState.events,
+    attachments: inspectionState.attachments, savedAt: new Date().toISOString()
+  };
+  await inspectionRequest('readwrite', store => store.put(state));
+}
+function applyInspectionState(snapshot = {}) {
+  inspectionState = {
+    projectId: activeProjectId,
+    elements: new Map((snapshot.elements || []).map(element => [element.elementId, element])),
+    points: snapshot.points || [], results: snapshot.results || [], nonconformities: snapshot.nonconformities || [],
+    events: snapshot.events || [], attachments: snapshot.attachments || [], localOnly: Boolean(snapshot.localOnly)
+  };
+}
+function projectRowsToInspection(data) {
+  return {
+    elements: (data.elements || []).map(row => ({ elementId: row.element_id, elementType: row.element_type, sourceLayer: row.source_layer, sourceHandle: row.source_handle, label: row.label, poleType: row.pole_type, networkRole: row.network_role, lat: row.lat, lon: row.lon, metadata: row.metadata || {} })),
+    points: (data.points || []).map(row => ({ id: row.id, elementId: row.element_id, pointType: row.point_type, offsetMeters: row.offset_meters, label: row.label, lat: row.lat, lon: row.lon, metadata: row.metadata || {} })),
+    results: (data.results || []).map(row => ({ id: row.id, pointId: row.inspection_point_id, elementId: row.element_id, checklistId: row.checklist_id, checklistItemId: row.checklist_item_id, completionStatus: row.completion_status, qualityStatus: row.quality_status, note: row.note || '', referenceSnapshot: row.reference_snapshot || {}, createdAt: row.created_at, updatedAt: row.updated_at })),
+    nonconformities: (data.nonconformities || []).map(row => ({ id: row.id, pointId: row.inspection_point_id, elementId: row.element_id, checklistItemId: row.checklist_item_id, contractorCode: row.contractor_code, description: row.description, lat: row.lat, lon: row.lon, state: row.state, createdAt: row.created_at, updatedAt: row.updated_at })),
+    events: (data.events || []).map(row => ({ id: row.id, nonconformityId: row.nonconformity_id, eventType: row.event_type, note: row.note, previousState: row.previous_state, nextState: row.next_state, createdAt: row.created_at })),
+    attachments: (data.attachments || []).map(row => ({ id: row.id, nonconformityId: row.nonconformity_id, resultId: row.inspection_result_id, stage: row.stage, storagePath: row.storage_path, fileName: row.file_name, mimeType: row.mime_type, createdAt: row.created_at }))
+  };
+}
+async function refreshInspectionData() {
+  const requestedProject = activeProjectId;
+  const existingElements = inspectionState.projectId === requestedProject ? Array.from(inspectionState.elements.values()) : [];
+  try {
+    if (backendEnabled && authenticatedProfile) {
+      const responses = await Promise.all([
+        supabaseClient.from('dxf_elements').select('*').eq('project_id', requestedProject),
+        supabaseClient.from('inspection_points').select('*').eq('project_id', requestedProject),
+        supabaseClient.from('inspection_results').select('*').eq('project_id', requestedProject),
+        supabaseClient.from('nonconformities').select('*').eq('project_id', requestedProject),
+        supabaseClient.from('nonconformity_events').select('*').eq('project_id', requestedProject),
+        supabaseClient.from('inspection_attachments').select('*').eq('project_id', requestedProject)
+      ]);
+      if (requestedProject !== activeProjectId) return;
+      if (responses.every(response => !response.error)) {
+        const remote = projectRowsToInspection({ elements: responses[0].data, points: responses[1].data, results: responses[2].data, nonconformities: responses[3].data, events: responses[4].data, attachments: responses[5].data });
+        for (const element of existingElements) if (!remote.elements.some(item => item.elementId === element.elementId)) remote.elements.push(element);
+        applyInspectionState(remote); renderInspectionDashboard(); return;
+      }
+    }
+    const local = await inspectionRequest('readonly', store => store.get(requestedProject));
+    if (requestedProject !== activeProjectId) return;
+    applyInspectionState({ ...(local || {}), elements: [...(local?.elements || []), ...existingElements.filter(item => !(local?.elements || []).some(saved => saved.elementId === item.elementId))], localOnly: true });
+  } catch (error) {
+    console.warn('Denetim verisi yerel yedekten açıldı:', error);
+    applyInspectionState({ elements: existingElements, localOnly: true });
+  }
+  renderInspectionDashboard();
+}
+async function persistInspectionPoint(point) {
+  if (!isBedaEditor() || !backendEnabled) { inspectionState.localOnly = true; await persistLocalInspectionState(); return; }
+  await ensureRemoteProject(activeProjectMeta.sourcePath && yandexFolderForPath(activeProjectMeta.sourcePath));
+  const { error } = await supabaseClient.from('inspection_points').upsert({
+    id: point.id, project_id: activeProjectId, element_id: point.elementId || null, point_type: point.pointType,
+    offset_meters: point.offsetMeters ?? null, label: point.label || null, lat: point.lat, lon: point.lon,
+    metadata: point.metadata || {}, created_by: authenticatedProfile.user_id, updated_at: new Date().toISOString()
+  }, { onConflict: 'id' });
+  if (error) throw error;
+}
+async function persistInspectionElements(elements) {
+  if (!elements.length || !isBedaEditor() || !backendEnabled) { if (!backendEnabled) await persistLocalInspectionState(); return; }
+  try {
+    await ensureRemoteProject(activeProjectMeta.sourcePath && yandexFolderForPath(activeProjectMeta.sourcePath));
+    const rows = elements.map(element => ({ project_id: activeProjectId, element_id: element.elementId, element_type: element.elementType, source_layer: element.sourceLayer || null, source_handle: element.sourceHandle || null, label: element.label || null, pole_type: element.poleType || null, network_role: element.networkRole || null, lat: element.lat, lon: element.lon, metadata: element.metadata || {}, created_by: authenticatedProfile.user_id, updated_at: new Date().toISOString() }));
+    const { error } = await supabaseClient.from('dxf_elements').upsert(rows, { onConflict: 'project_id,element_id' });
+    if (error) throw error;
+  } catch (error) { console.warn('Algılanan DXF elemanları merkezi depoya yazılamadı:', error); inspectionState.localOnly = true; await persistLocalInspectionState(); }
+}
+function registerDetectedElements(candidates, sourceFileName) {
+  const accepted = [];
+  for (const candidate of (candidates || []).slice(0, 2500)) {
+    if (!candidate || !Number.isFinite(candidate.lat) || !Number.isFinite(candidate.lon) || !['pole', 'underground_route'].includes(candidate.elementType)) continue;
+    const elementId = String(candidate.elementId || `${candidate.elementType}:${candidate.sourceHandle || ''}:${candidate.lat.toFixed(6)}:${candidate.lon.toFixed(6)}`);
+    const element = { ...candidate, elementId, sourceFileName, metadata: { ...(candidate.metadata || {}), sourceFileName } };
+    inspectionState.elements.set(elementId, element); accepted.push(element);
+  }
+  if (accepted.length) { renderInspectionDashboard(); void persistInspectionElements(accepted); }
+}
+function selectInspectionTarget(target) {
+  selectedInspectionTarget = { ...target };
+  inspectionPickType = null;
+  openPanel('inspectionPanel');
+  renderInspectionDashboard();
+}
+function addManualInspectionPoint(pointType, latlng) {
+  const point = { id: `manual:${makeRecordId()}`, elementId: null, pointType, label: pointType === 'underground' ? 'Manuel yeraltı kontrol noktası' : 'Manuel direk kontrol noktası', lat: latlng.lat, lon: latlng.lng, metadata: { manual: true } };
+  inspectionState.points.push(point); selectedInspectionTarget = { ...point, pointId: point.id, elementType: 'manual' }; inspectionPickType = null;
+  void persistInspectionPoint(point).catch(error => showToast(error.message || 'Manuel kontrol noktası kaydedilemedi.'));
+  openPanel('inspectionPanel'); renderInspectionDashboard();
+}
+map.on('click', event => { if (inspectionPickType) addManualInspectionPoint(inspectionPickType, event.latlng); });
+async function ensureSelectedInspectionPoint() {
+  let point = inspectionPointForTarget();
+  if (point) return point;
+  if (!selectedInspectionTarget) throw new Error('Önce bir kontrol noktası seç.');
+  const elementId = selectedInspectionTarget.elementId || null;
+  point = { id: elementId ? `element:${activeProjectId}:${elementId}` : `manual:${makeRecordId()}`, elementId, pointType: selectedInspectionTarget.pointType || 'pole', label: selectedInspectionTarget.label || null, lat: selectedInspectionTarget.lat, lon: selectedInspectionTarget.lon, metadata: { generatedFromElement: Boolean(elementId) } };
+  inspectionState.points.push(point); selectedInspectionTarget.pointId = point.id;
+  await persistInspectionPoint(point); return point;
+}
+async function persistInspectionResult(result) {
+  if (!backendEnabled || !isBedaEditor()) { inspectionState.localOnly = true; await persistLocalInspectionState(); return; }
+  const { error } = await supabaseClient.from('inspection_results').upsert({
+    id: result.id, project_id: activeProjectId, inspection_point_id: result.pointId, element_id: result.elementId || null,
+    checklist_id: result.checklistId, checklist_item_id: result.checklistItemId, completion_status: result.completionStatus,
+    quality_status: result.qualityStatus, note: result.note || '', reference_snapshot: result.referenceSnapshot || {},
+    created_by: authenticatedProfile.user_id, updated_by: authenticatedProfile.user_id, updated_at: new Date().toISOString()
+  }, { onConflict: 'project_id,inspection_point_id,checklist_item_id' });
+  if (error) throw error;
+}
+async function persistNonconformity(record, eventType = null, previousState = null) {
+  if (!backendEnabled || !isBedaEditor()) { inspectionState.localOnly = true; await persistLocalInspectionState(); return; }
+  const now = new Date().toISOString();
+  const row = { id: record.id, project_id: activeProjectId, inspection_point_id: record.pointId || null, element_id: record.elementId || null, checklist_item_id: record.checklistItemId || null, contractor_code: record.contractorCode || null, description: record.description, lat: record.lat ?? null, lon: record.lon ?? null, state: record.state, created_by: authenticatedProfile.user_id, updated_by: authenticatedProfile.user_id, updated_at: now, ...(record.state === 'closed' ? { closed_by: authenticatedProfile.user_id, closed_at: now } : {}) };
+  const { error } = await supabaseClient.from('nonconformities').upsert(row, { onConflict: 'id' }); if (error) throw error;
+  if (eventType) {
+    const event = { id: makeRecordId(), nonconformityId: record.id, eventType, previousState, nextState: record.state, note: record.description, createdAt: now };
+    const { error: eventError } = await supabaseClient.from('nonconformity_events').insert({ id: event.id, nonconformity_id: event.nonconformityId, project_id: activeProjectId, event_type: event.eventType, previous_state: event.previousState, next_state: event.nextState, note: event.note, created_by: authenticatedProfile.user_id });
+    if (eventError) throw eventError; inspectionState.events.push(event);
+  }
+}
+async function addInspectionAttachment(file, nonconformity, result) {
+  if (!file) return;
+  const attachment = { id: makeRecordId(), nonconformityId: nonconformity?.id || null, resultId: result?.id || null, stage: inspectionPhotoStage.value === 'after' ? 'after' : 'before', fileName: file.name, mimeType: file.type, createdAt: new Date().toISOString(), blob: file };
+  if (!backendEnabled || !isBedaEditor()) { inspectionState.attachments.push(attachment); inspectionState.localOnly = true; await persistLocalInspectionState(); return; }
+  const owner = nonconformity?.id || result?.id || attachment.id;
+  attachment.storagePath = `${activeProjectId}/${owner}/${safeFileName(file.name)}`;
+  const { error: uploadError } = await supabaseClient.storage.from('inspection-photos').upload(attachment.storagePath, file, { upsert: false, contentType: file.type || 'application/octet-stream' });
+  if (uploadError) throw uploadError;
+  const { error } = await supabaseClient.from('inspection_attachments').insert({ id: attachment.id, project_id: activeProjectId, nonconformity_id: attachment.nonconformityId, inspection_result_id: attachment.resultId, stage: attachment.stage, storage_path: attachment.storagePath, file_name: attachment.fileName, mime_type: attachment.mimeType, created_by: authenticatedProfile.user_id });
+  if (error) throw error; delete attachment.blob; inspectionState.attachments.push(attachment);
+}
+async function saveSelectedInspection() {
+  if (!isBedaEditor()) { showToast('Checklist kaydetme yetkisi yalnızca BEDA hesabında.'); return; }
+  const point = await ensureSelectedInspectionPoint(); const checklist = inspectionChecklistFor();
+  if (!checklist) throw new Error('Bu kontrol noktası için checklist bulunamadı.');
+  const entries = inspectionItems(checklist).map(item => {
+    const completion = inspectionChecklist.querySelector(`[data-completion="${item.id}"]`)?.value || 'NOT_DONE';
+    const quality = completion === 'DONE' ? inspectionChecklist.querySelector(`[data-quality="${item.id}"]`)?.value || 'NOT_CHECKED' : 'NOT_CHECKED';
+    return { item, completion, quality };
+  });
+  if (entries.some(entry => entry.quality === 'NON_COMPLIANT') && !inspectionNote.value.trim()) throw new Error('Uygunsuz imalat için açıklama gir.');
+  let attachmentTarget = null;
+  for (const entry of entries) {
+    const existing = inspectionState.results.find(result => result.pointId === point.id && result.checklistItemId === entry.item.id);
+    const result = { id: existing?.id || makeRecordId(), pointId: point.id, elementId: point.elementId || null, checklistId: checklist.id, checklistItemId: entry.item.id, completionStatus: entry.completion, qualityStatus: entry.quality, note: inspectionNote.value.trim(), referenceSnapshot: { criteria: entry.item.criteria || {}, technicalNote: entry.item.technicalNote || '', referenceImage: entry.item.referenceImage || null, referenceDocument: entry.item.referenceDocument || null, referencePage: entry.item.referencePage || null, configVersion: INSPECTION_CONFIG.version }, createdAt: existing?.createdAt || new Date().toISOString(), updatedAt: new Date().toISOString() };
+    if (existing) Object.assign(existing, result); else inspectionState.results.push(result);
+    await persistInspectionResult(result);
+    if (entry.quality === 'NON_COMPLIANT') {
+      let nonconformity = inspectionState.nonconformities.find(item => item.pointId === point.id && item.checklistItemId === entry.item.id && item.state !== 'closed');
+      if (!nonconformity) {
+        nonconformity = { id: makeRecordId(), pointId: point.id, elementId: point.elementId || null, checklistItemId: entry.item.id, contractorCode: projectContractorCode(), description: inspectionNote.value.trim(), lat: point.lat, lon: point.lon, state: 'active', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+        inspectionState.nonconformities.push(nonconformity); await persistNonconformity(nonconformity, 'created');
+      }
+      attachmentTarget ||= { nonconformity, result };
+    }
+  }
+  const photo = inspectionPhotoInput.files?.[0];
+  if (photo) await addInspectionAttachment(photo, attachmentTarget?.nonconformity, attachmentTarget?.result);
+  inspectionPhotoInput.value = ''; inspectionNote.value = ''; renderInspectionDashboard(); showToast('Checklist sonucu kaydedildi.');
+}
+async function updateNonconformityState(record, nextState) {
+  if (!isBedaEditor()) return;
+  const previousState = record.state; record.state = nextState; record.updatedAt = new Date().toISOString();
+  try { await persistNonconformity(record, nextState === 'closed' ? 'closed' : nextState === 'active' ? 'reopened' : 'correction_requested', previousState); renderInspectionDashboard(); showToast('Uygunsuzluk durumu güncellendi.'); }
+  catch (error) { record.state = previousState; showToast(error.message || 'Uygunsuzluk güncellenemedi.'); }
+}
+async function importPackageInspectionSnapshot(snapshot, zip) {
+  applyInspectionState({ ...snapshot, localOnly: !backendEnabled || !isBedaEditor() });
+  for (const attachment of inspectionState.attachments) {
+    if (!attachment.packagePath) continue;
+    const entry = zip.file(attachment.packagePath); if (!entry) continue;
+    attachment.blob = new Blob([await entry.async('arraybuffer')], { type: attachment.mimeType || 'application/octet-stream' });
+  }
+  if (backendEnabled && isBedaEditor()) {
+    try {
+      await persistInspectionElements(Array.from(inspectionState.elements.values()));
+      for (const point of inspectionState.points) await persistInspectionPoint(point);
+      for (const result of inspectionState.results) await persistInspectionResult(result);
+      for (const record of inspectionState.nonconformities) await persistNonconformity(record);
+    } catch (error) { inspectionState.localOnly = true; await persistLocalInspectionState(); }
+  } else await persistLocalInspectionState();
+  renderInspectionDashboard();
+}
+async function buildInspectionPackageSnapshot(zip) {
+  const attachments = [];
+  for (const item of inspectionState.attachments) {
+    const attachment = { ...item }; delete attachment.blob;
+    let blob = item.blob || null;
+    if (!blob && backendEnabled && item.storagePath) {
+      const { data, error } = await supabaseClient.storage.from('inspection-photos').download(item.storagePath);
+      if (error) throw new Error(`“${item.fileName}” denetim fotoğrafı paketlenemedi: ${error.message}`);
+      blob = data;
+    }
+    if (blob) {
+      const packagePath = `inspection-photos/${safeFileName(item.id)}-${safeFileName(item.fileName || 'foto.jpg')}`;
+      zip.file(packagePath, await blob.arrayBuffer()); attachment.packagePath = packagePath;
+    }
+    attachments.push(attachment);
+  }
+  return {
+    schemaVersion: 1,
+    configVersion: INSPECTION_CONFIG.version,
+    elements: Array.from(inspectionState.elements.values()), points: inspectionState.points,
+    results: inspectionState.results, nonconformities: inspectionState.nonconformities,
+    events: inspectionState.events, attachments
+  };
+}
+document.querySelectorAll('[data-inspection-filter]').forEach(button => button.addEventListener('click', () => { inspectionFilter = button.dataset.inspectionFilter || 'all'; renderInspectionDashboard(); }));
+document.getElementById('showOnlyNonconformities').addEventListener('click', () => { inspectionFilter = 'noncompliant'; renderInspectionDashboard(); });
+document.getElementById('addManualPole').addEventListener('click', () => { if (!isBedaEditor()) return showToast('Manuel kontrol noktası ekleme yetkisi yalnızca BEDA hesabında.'); inspectionPickType = 'pole'; setFieldPick(false); showToast('Haritada direk kontrol noktasına tıkla.'); });
+document.getElementById('addManualUnderground').addEventListener('click', () => { if (!isBedaEditor()) return showToast('Manuel kontrol noktası ekleme yetkisi yalnızca BEDA hesabında.'); inspectionPickType = 'underground'; setFieldPick(false); showToast('Haritada yeraltı kontrol noktasına tıkla.'); });
+document.getElementById('saveInspection').addEventListener('click', async () => { const button = document.getElementById('saveInspection'); button.disabled = true; try { await saveSelectedInspection(); } catch (error) { showToast(error.message || 'Checklist kaydedilemedi.'); } finally { button.disabled = !isBedaEditor(); } });
 
 applyDemoRole();
 setActiveProject(activeProjectName, activeProjectId);
@@ -1323,6 +1892,8 @@ void refreshFieldRecords();
 void initializeAuthentication();
 window.addEventListener('beforeunload', () => {
   cleanupFieldObjectUrls();
+  for (const url of inspectionObjectUrls) URL.revokeObjectURL(url);
+  inspectionObjectUrls.clear();
   if (generatedProjectBundleUrl) URL.revokeObjectURL(generatedProjectBundleUrl);
 });
 

@@ -49,6 +49,7 @@
     <button class="wide-button primary" id="uploadButton">📂 DXF / KML / KMZ YÜKLE</button>
     <button class="wide-button" id="loadDisk">📦 PROJE PAKETİ AÇ</button>
     <button class="wide-button" id="saveProjectBundle">💾 TÜM PROJEYİ PAKETLE</button>
+    <button class="wide-button" id="saveProjectBundleToYandex" type="button" hidden>☁️ GÜNCEL PAKETİ YANDEX'E KAYDET</button>
     <a class="wide-button bundle-download" id="downloadProjectBundle" hidden>⬇️ PROJE PAKETİNİ İNDİR</a>
     <input type="file" id="fileInput" accept=".dxf,.kmz,.kml,.dxfproj,.zip" multiple hidden>
     <div class="shared-projects" id="sharedProjects" hidden>
@@ -140,6 +141,43 @@
     <div class="section-label">BU PROJEDEKİ KAYITLAR</div>
     <div class="field-record-list" id="fieldRecordList"><div class="message">Henüz saha kaydı yok.</div></div>
   </section>
+  <section class="drawer panel inspection-panel" id="inspectionPanel" hidden>
+    <button class="close" aria-label="Kapat">×</button>
+    <div class="panel-heading">✓ SAHA DENETİMİ</div>
+    <div class="message field-project-label" id="inspectionProjectLabel">Proje: Saha Denemesi</div>
+    <div class="inspection-summary" id="inspectionSummary" aria-live="polite"></div>
+    <div class="section-label">DURUM FİLTRESİ</div>
+    <div class="inspection-filters" id="inspectionFilters">
+      <button type="button" data-inspection-filter="all" class="selected">TÜMÜ</button>
+      <button type="button" data-inspection-filter="noncompliant">UYGUNSUZ</button>
+      <button type="button" data-inspection-filter="pending">DÜZELTME BEKLEYEN</button>
+      <button type="button" data-inspection-filter="compliant">UYGUN</button>
+      <button type="button" data-inspection-filter="unchecked">KONTROL EDİLMEMİŞ</button>
+    </div>
+    <button class="wide-button" id="showOnlyNonconformities" type="button">🔴 SADECE UYGUNSUZLUKLARI GÖSTER</button>
+    <div class="section-label">KONTROL NOKTASI</div>
+    <div class="message inspection-selection" id="inspectionSelection">DXF üzerinde algılanan bir direğe ya da yeraltı kontrol noktasına dokun. Algılanamayan yer için manuel nokta ekleyebilirsin.</div>
+    <div class="inspection-manual-actions">
+      <button class="wide-button" id="addManualPole" type="button">📍 MANUEL DİREK NOKTASI EKLE</button>
+      <button class="wide-button" id="addManualUnderground" type="button">📍 MANUEL YERALTI NOKTASI EKLE</button>
+    </div>
+    <div id="inspectionEditor" hidden>
+      <div class="section-label">CHECKLIST</div>
+      <div class="inspection-checklist" id="inspectionChecklist"></div>
+      <label for="inspectionNote">Kontrol notu</label>
+      <textarea class="field-input field-notes-input" id="inspectionNote" maxlength="2000" placeholder="Gözlem ve teknik not…"></textarea>
+      <label for="inspectionPhotoInput">Kanıt / düzeltme fotoğrafı</label>
+      <input class="field-input" id="inspectionPhotoInput" type="file" accept="image/*" capture="environment">
+      <select class="field-input" id="inspectionPhotoStage" aria-label="Fotoğraf türü">
+        <option value="before">ÖNCE / ilk tespit fotoğrafı</option>
+        <option value="after">SONRA / düzeltme fotoğrafı</option>
+      </select>
+      <button class="wide-button primary" id="saveInspection" type="button">CHECKLIST SONUCUNU KAYDET</button>
+      <div class="message" id="inspectionPermissionNotice"></div>
+    </div>
+    <div class="section-label">UYGUNSUZLUK GEÇMİŞİ</div>
+    <div class="inspection-history" id="inspectionHistory"><div class="message">Henüz seçili kontrol noktası yok.</div></div>
+  </section>
   <section class="drawer panel" id="addressPanel" hidden>
     <button class="close" aria-label="Kapat">×</button><div class="panel-heading">↗️ ADRESE GİT</div>
     <form id="addressForm"><label for="addressInput">Adres veya yer ara</label><div class="input-row"><input id="addressInput" placeholder="Örn. Ankara, Türkiye" required><button class="primary" type="submit">ARA</button></div></form><div class="message" id="addressMessage"></div>
@@ -155,6 +193,7 @@
   <nav class="toolbar" aria-label="Harita araçları">
     <button data-panel="projectPanel"><span class="tool-icon folder">📁</span><span>PROJE</span></button>
     <button data-panel="fieldPanel"><span class="tool-icon pin">📷</span><span>SAHA</span></button>
+    <button data-panel="inspectionPanel"><span class="tool-icon">✓</span><span>DENETİM</span></button>
     <button data-panel="locationPanel"><span class="tool-icon pin">📍</span><span>KONUM</span></button>
     <button data-panel="addressPanel"><span class="tool-icon go">↗</span><span>ADRESE GİT</span></button>
     <button data-panel="parcelPanel"><span class="tool-icon parcel">▱</span><span>PARSEL</span></button>
@@ -168,7 +207,8 @@
   <script src="https://cdn.jsdelivr.net/npm/@mapbox/togeojson@0.16.2/togeojson.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="./supabase-config.js?v=4"></script>
-  <script src="./app.js?v=28"></script>
+  <script src="./inspection-config.js?v=1"></script>
+  <script src="./app.js?v=29"></script>
 </body>
 </html>
 

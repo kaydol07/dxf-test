@@ -153,6 +153,55 @@ function makeProjector(info) {
   };
 }
 
+/* Detection is intentionally conservative.  A candidate is emitted only from
+   an INSERT/POINT on a pole layer, or a polyline on an underground-cable layer.
+   The UI always keeps manual control points available for drawings that do not
+   use these conventional names. */
+function inspectionCandidates(dxf, project, intervalMeters = 5) {
+  const candidates = [], maximum = 2500;
+  const poleLayer = /(?:D[Iİ]REK|\bPOLE\b|\bD[._ -]?AG\b|\bD[._ -]?OG\b)/i;
+  const undergroundLayer = /(?:YERALTI|YER[ _-]?ALTI|KABLO|UG|OG[ _-]?YERALTI)/i;
+  const stable = value => String(value || '').replace(/[^a-zA-Z0-9_.:-]+/g, '_').slice(0, 120);
+  const add = value => { if (value && candidates.length < maximum) candidates.push(value); };
+  const entityPoint = entity => entity.position || entity.startPoint || entity.center || entity;
+  for (let index = 0; index < (dxf.entities || []).length && candidates.length < maximum; index++) {
+    const entity = dxf.entities[index] || {}, type = String(entity.type || '').toUpperCase();
+    const layer = String(entity.layer || ''), name = String(entity.name || '');
+    if (['INSERT', 'POINT', 'TEXT', 'MTEXT', 'ATTRIB'].includes(type) && poleLayer.test(layer + ' ' + name)) {
+      const raw = entityPoint(entity), point = project(raw);
+      if (!point) continue;
+      const handle = entity.handle || `${layer}:${name}:${Number(raw.x).toFixed(3)}:${Number(raw.y).toFixed(3)}`;
+      add({ elementId: `pole:${stable(handle)}`, elementType: 'pole', sourceLayer: layer, sourceHandle: entity.handle || null,
+        label: String(entity.text || entity.value || name || layer || 'Direk').slice(0, 120), poleType: name || null, networkRole: null, lat: point[0], lon: point[1], metadata: { detected: true, entityType: type, detectionConfidence: type === 'INSERT' || type === 'POINT' ? 'high' : 'layer-label' } });
+      continue;
+    }
+    if (!['LWPOLYLINE', 'POLYLINE'].includes(type) || !undergroundLayer.test(layer + ' ' + name)) continue;
+    const vertices = (entity.vertices || []).filter(point => Number.isFinite(point?.x) && Number.isFinite(point?.y));
+    if (vertices.length < 2) continue;
+    const handle = stable(entity.handle || `${layer}:${index}`), interval = Math.max(1, Math.min(100, Number(intervalMeters) || 5));
+    let carried = 0, offset = 0;
+    const addRoutePoint = (raw, distance) => {
+      const point = project(raw); if (!point) return;
+      add({ elementId: `underground:${handle}:${Math.round(distance * 10)}`, elementType: 'underground_route', sourceLayer: layer, sourceHandle: entity.handle || null,
+        label: `${name || layer || 'Yeraltı güzergâhı'} · ${Math.round(distance)} m`, lat: point[0], lon: point[1], metadata: { detected: true, entityType: type, offsetMeters: distance } });
+    };
+    addRoutePoint(vertices[0], 0);
+    for (let vertexIndex = 1; vertexIndex < vertices.length && candidates.length < maximum; vertexIndex++) {
+      const start = vertices[vertexIndex - 1], end = vertices[vertexIndex], dx = end.x - start.x, dy = end.y - start.y;
+      const length = Math.hypot(dx, dy);
+      if (!Number.isFinite(length) || length <= 0 || length > 100000) continue;
+      let next = interval - carried;
+      while (next <= length && candidates.length < maximum) {
+        const fraction = next / length;
+        addRoutePoint({ x: start.x + dx * fraction, y: start.y + dy * fraction }, offset + next);
+        next += interval;
+      }
+      carried = (carried + length) % interval; offset += length;
+    }
+  }
+  return candidates;
+}
+
 function cadColor(entity, layer, inheritedColor) {
   const index = Number(entity.colorIndex);
   let value = entity.trueColor ?? entity.color;
@@ -317,6 +366,8 @@ self.onmessage = async event => {
     const records = dxf.tables?.layer?.layers || dxf.tables?.layers?.layers || {};
     const layerMap = new Map(Object.values(records).map(layer => [String(layer.name || '').toUpperCase(), layer]));
     self.postMessage({ type: 'crs', info });
+    const candidates = inspectionCandidates(dxf, project, data.inspectionIntervalMeters);
+    if (candidates.length) self.postMessage({ type: 'inspection-candidates', candidates });
     let batches = new Map(), pending = 0, total = 0, processed = 0;
     const flush = () => {
       if (!pending) return;
