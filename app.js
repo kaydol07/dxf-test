@@ -8,10 +8,11 @@ const bases={
 };
 bases.satellite.addTo(map);
 let labelLayer=L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager_only_labels/{z}/{x}/{y}{r}.png',{attribution:'',maxZoom:20,pane:'overlayPane'}).addTo(map);
-const panels=['projectPanel','fieldPanel','inspectionPanel','locationPanel','addressPanel','parcelPanel'];
-function openPanel(id){panels.forEach(p=>document.getElementById(p).hidden=p!==id||!document.getElementById(p).hidden);document.querySelectorAll('.toolbar [data-panel]').forEach(b=>b.classList.toggle('active',b.dataset.panel===id&&!document.getElementById(id).hidden));}
+const panels=['projectPanel','inspectionPanel','locationPanel','addressPanel','parcelPanel'];
+function keepMapVisible(){requestAnimationFrame(()=>{document.getElementById('map').style.opacity='1';map.invalidateSize({pan:false});cadCanvasLayers.forEach(item=>item.layer?._scheduleDraw?.());if(!map.hasLayer(inspectionMarkerLayer))inspectionMarkerLayer.addTo(map);});}
+function openPanel(id){panels.forEach(p=>document.getElementById(p).hidden=p!==id||!document.getElementById(p).hidden);document.querySelectorAll('.toolbar [data-panel]').forEach(b=>b.classList.toggle('active',b.dataset.panel===id&&!document.getElementById(id).hidden));keepMapVisible();}
 document.querySelectorAll('.toolbar [data-panel]').forEach(button=>button.addEventListener('click',()=>{const id=button.dataset.panel;const wasClosed=document.getElementById(id).hidden;if(fieldPickActive)setFieldPick(false);openPanel(id);if(id==='locationPanel'&&wasClosed)startLocationTracking();if(id==='parcelPanel')setParcelPick(wasClosed)}));
-document.querySelectorAll('.close').forEach(button=>button.addEventListener('click',()=>{button.closest('.drawer').hidden=true;document.querySelectorAll('.toolbar button').forEach(b=>b.classList.remove('active'));}));
+document.querySelectorAll('.close').forEach(button=>button.addEventListener('click',()=>{button.closest('.drawer').hidden=true;document.querySelectorAll('.toolbar button').forEach(b=>b.classList.remove('active'));keepMapVisible();}));
 const layerToggle=document.getElementById('layerToggle'),layersPanel=document.getElementById('layersPanel');
 layerToggle.addEventListener('click',()=>layersPanel.hidden=!layersPanel.hidden);
 const googleMapBase=document.createElement('div');
@@ -186,7 +187,7 @@ document.getElementById('fileInput').addEventListener('change',async e=>{
 document.getElementById('allLayers').addEventListener('change',e=>{for(const item of importedLayers){const c=item.row.querySelector('input');c.checked=e.target.checked;if(e.target.checked)item.layer.addTo(map);else map.removeLayer(item.layer)}});
 document.getElementById('clearMap').addEventListener('click',()=>{for(const item of importedLayers){map.removeLayer(item.layer);item.row.remove()}importedLayers.length=0;map.eachLayer(l=>{if(l!==bases.satellite&&l!==bases.street&&l!==bases.dark&&l!==bases.light&&l!==labelLayer&&l!==locationMarker&&l!==locationAccuracy&&l!==fieldMarkerLayer&&l!==inspectionMarkerLayer)map.removeLayer(l)});inspectionMarkerLayer.clearLayers();if(fieldDraftMarker){map.removeLayer(fieldDraftMarker);fieldDraftMarker=null}fieldDraftLocation=null;fieldLocationStatus.textContent='Konum seçilmedi.';if(parcelRequest)parcelRequest.abort();parcelLayer=null;parcelResult.hidden=true;setParcelPick(false);cadLayers.innerHTML='<div class="message">DXF yüklendiğinde katmanlar burada görünür.</div>';loadedFiles.textContent='Henüz dosya yüklenmedi';document.getElementById('allLayers').checked=true;showToast('Harita üzerindeki işaretler temizlendi.')});
 document.querySelectorAll('[data-datum]').forEach(b=>b.addEventListener('click',()=>showToast('Koordinat sistemi: '+b.dataset.datum)));
-document.getElementById('printButton').addEventListener('click',()=>window.print());
+document.getElementById('printButton')?.addEventListener('click',()=>window.print());
 
 
 /* Large DXF files are parsed in a worker and drawn by one canvas per CAD layer. */
@@ -376,7 +377,7 @@ async function parseDxf(file, options = {}) {
   };
   try {
     const buffer = await file.arrayBuffer();
-    worker = new Worker(new URL('./dxf-worker.js?v=3', document.baseURI));
+    worker = new Worker(new URL('./dxf-worker.js?v=6', document.baseURI));
     const result = await new Promise((resolve, reject) => {
       const cancel = () => { if (settled) return; settled = true; reject(new Error('DXF yüklemesi iptal edildi.')); };
       activeDxfJobs.set(worker, cancel);
@@ -469,6 +470,9 @@ const fieldEditor = document.getElementById('fieldEditor');
 const fieldOwnerInput = document.getElementById('fieldOwner');
 const fieldRecordList = document.getElementById('fieldRecordList');
 const fieldProjectLabel = document.getElementById('fieldProjectLabel');
+const projectContractorSection = document.getElementById('projectContractorSection');
+const projectContractorInput = document.getElementById('projectContractor');
+const projectContractorStatus = document.getElementById('projectContractorStatus');
 const fieldObjectUrls = new Set();
 let generatedProjectBundleUrl = null, generatedProjectBundleBlob = null;
 const FIELD_CONTRACTORS = ['ERKSİS', 'ASTAN', 'ASMİN', 'ERBU', 'AZRAM'];
@@ -501,6 +505,25 @@ function activeRole() { return backendConfigured ? authenticatedProfile?.role ||
 function isBedaEditor() { return activeRole() === 'beda'; }
 function canOpenProjectFiles() { return backendConfigured ? Boolean(authenticatedProfile) : Boolean(activeRole()); }
 function canManageProjectFiles() { return isBedaEditor(); }
+function projectContractorStorageKey(projectId = activeProjectId) { return `dxf-project-contractor:${projectId}`; }
+function projectHasYandexContractor() {
+  const folder = yandexFolderForPath(activeProjectMeta.sourcePath || '');
+  return folder && folder !== 'disk:/PROJELER' ? folder.replace('disk:/PROJELER/', '') : null;
+}
+function renderProjectContractorSelection() {
+  if (!projectContractorSection) return;
+  projectContractorSection.hidden = !isBedaEditor();
+  if (!isBedaEditor()) return;
+  const yandexContractor = projectHasYandexContractor();
+  const contractor = yandexContractor || projectContractorCode() || '';
+  projectContractorInput.value = contractor;
+  projectContractorInput.disabled = Boolean(yandexContractor);
+  projectContractorStatus.textContent = yandexContractor
+    ? `Bu proje Yandex Disk’te ${yandexContractor} klasörüne bağlı. Taşeron otomatik belirlenir.`
+    : contractor
+      ? `${contractor} seçildi. Projeyi paketleyip Yandex’e kaydettiğinde /PROJELER/${contractor} klasörüne gider.`
+      : 'Yerelden açılan projede, Yandex’e ilk paket kaydedilmeden önce taşeron seç.';
+}
 let authApplyRevision = 0;
 const authMessage = document.getElementById('authMessage');
 if (backendConfigured && !backendEnabled) authMessage.textContent = backendInitError;
@@ -610,7 +633,7 @@ authSignOutButtons.forEach(button => button?.addEventListener('click', signOutAu
 document.getElementById('authGateClose').addEventListener('click', () => { document.getElementById('authGate').hidden = true; });
 loginToolbarButton?.addEventListener('click', () => {
   if (authenticatedProfile) {
-    openPanel('fieldPanel');
+    openPanel('inspectionPanel');
   } else {
     openLoginPanel();
   }
@@ -663,6 +686,7 @@ function applyDemoRole() {
   document.getElementById('sharedProjects').hidden = !backendEnabled || !authenticatedProfile;
   document.getElementById('yandexBrowseButton').hidden = !backendEnabled || !authenticatedProfile;
   document.getElementById('yandexFolderSetupButton').hidden = !backendEnabled || !isBedaEditor();
+  document.getElementById('deleteAllSharedProjects').hidden = !backendEnabled || !isBedaEditor();
   const privacyNotes = document.querySelectorAll('.file-privacy');
   if (backendEnabled) {
     privacyNotes[0].textContent = 'Saha kayıtları ve proje dosyaları ortak Supabase hesabında saklanır. Erişim hesabına göre denetlenir.';
@@ -681,6 +705,7 @@ function applyDemoRole() {
     fieldOwnerInput.disabled = false;
     if (ownerLabel) ownerLabel.textContent = 'İşin taşeronu';
   }
+  renderProjectContractorSelection();
   if (typeof renderInspectionDashboard === 'function') renderInspectionDashboard();
 }
 fieldUserRoleInput.addEventListener('change', () => {
@@ -694,6 +719,15 @@ fieldContractorInput.addEventListener('change', () => {
   demoContractor = FIELD_CONTRACTORS.includes(fieldContractorInput.value) ? fieldContractorInput.value : FIELD_CONTRACTORS[0];
   localStorage.setItem('dxf-demo-contractor', demoContractor);
   applyDemoRole(); refreshFieldRecords();
+});
+projectContractorInput.addEventListener('change', () => {
+  if (!isBedaEditor() || projectHasYandexContractor()) { renderProjectContractorSelection(); return; }
+  const contractor = normalizeContractorCode(projectContractorInput.value);
+  activeProjectMeta = { ...activeProjectMeta, contractorCode: FIELD_CONTRACTORS.includes(contractor) ? contractor : null };
+  if (activeProjectMeta.contractorCode) localStorage.setItem(projectContractorStorageKey(), activeProjectMeta.contractorCode);
+  else localStorage.removeItem(projectContractorStorageKey());
+  renderProjectContractorSelection();
+  showToast(activeProjectMeta.contractorCode ? `Proje taşeronu ${activeProjectMeta.contractorCode} olarak seçildi.` : 'Proje taşeronu kaldırıldı.');
 });
 window.addEventListener('storage', event => {
   if (backendConfigured) return;
@@ -789,7 +823,8 @@ async function moveProjectRecords(fromId, toId, projectName) {
 function setActiveProject(name, id, metadata = {}) {
   activeProjectName = String(name || 'Saha Denemesi').replace(/\.dxf$/i, '').trim() || 'Saha Denemesi';
   activeProjectId = id || 'local-' + activeProjectName.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 70);
-  const contractorCode = normalizeContractorCode(metadata.contractorCode || metadata.contractor_code || yandexFolderForPath(metadata.sourcePath || '')?.replace('disk:/PROJELER/', '') || '');
+  const rememberedContractor = normalizeContractorCode(localStorage.getItem(projectContractorStorageKey(activeProjectId)) || '');
+  const contractorCode = normalizeContractorCode(metadata.contractorCode || metadata.contractor_code || yandexFolderForPath(metadata.sourcePath || '')?.replace('disk:/PROJELER/', '') || rememberedContractor || '');
   activeProjectMeta = {
     canonicalKey: metadata.canonicalKey || metadata.canonical_key || null,
     contractorCode: FIELD_CONTRACTORS.includes(contractorCode) ? contractorCode : null,
@@ -797,6 +832,7 @@ function setActiveProject(name, id, metadata = {}) {
   };
   localStorage.setItem('dxf-active-project-id', activeProjectId);
   localStorage.setItem('dxf-active-project-name', activeProjectName);
+  if (FIELD_CONTRACTORS.includes(contractorCode)) localStorage.setItem(projectContractorStorageKey(activeProjectId), contractorCode);
   fieldProjectLabel.textContent = 'Proje: ' + activeProjectName;
   const inspectionProjectLabel = document.getElementById('inspectionProjectLabel');
   if (inspectionProjectLabel) inspectionProjectLabel.textContent = 'Proje: ' + activeProjectName;
@@ -833,6 +869,55 @@ async function refreshSharedProjects() {
     }
   if (projects.some(project => project.id === activeProjectId)) select.value = activeProjectId;
   else if (projects.length) select.selectedIndex = 0;
+}
+async function removeStoragePaths(bucket, paths) {
+  const uniquePaths = [...new Set((paths || []).filter(Boolean))];
+  for (let index = 0; index < uniquePaths.length; index += 100) {
+    const { error } = await supabaseClient.storage.from(bucket).remove(uniquePaths.slice(index, index + 100));
+    if (error) throw error;
+  }
+}
+async function clearLocalProjectCopies(projectIds) {
+  for (const projectId of projectIds) {
+    await inspectionRequest('readwrite', store => store.delete(projectId));
+  }
+  const localRecords = await fieldRequest('readonly', store => store.getAll());
+  for (const record of localRecords.filter(item => projectIds.includes(item.projectId))) {
+    await fieldRequest('readwrite', store => store.delete(record.id));
+  }
+}
+async function deleteAllSharedProjects() {
+  if (!backendEnabled || !isBedaEditor()) { showToast('Bu işlem yalnızca BEDA hesabında yapılabilir.'); return; }
+  const button = document.getElementById('deleteAllSharedProjects');
+  button.disabled = true;
+  try {
+    const { data: projects, error: projectError } = await supabaseClient.from('projects').select('id,name').order('name');
+    if (projectError) throw projectError;
+    if (!projects?.length) { showToast('Silinecek Supabase projesi yok.'); return; }
+    const projectIds = projects.map(project => project.id);
+    const names = projects.map(project => project.name).join('\n• ');
+    if (!window.confirm(`Supabase’deki ${projects.length} proje ve bağlı denetim kayıtları silinecek:\n• ${names}\n\nYandex Disk paketleri silinmeyecek. Bu işlem geri alınamaz. Devam edilsin mi?`)) return;
+    const [fileRows, attachmentRows] = await Promise.all([
+      supabaseClient.from('project_files').select('storage_path').in('project_id', projectIds),
+      supabaseClient.from('inspection_attachments').select('storage_path').in('project_id', projectIds)
+    ]);
+    if (fileRows.error) throw fileRows.error;
+    if (attachmentRows.error) throw attachmentRows.error;
+    await removeStoragePaths('project-files', (fileRows.data || []).map(row => row.storage_path));
+    await removeStoragePaths('inspection-photos', (attachmentRows.data || []).map(row => row.storage_path));
+    const { error: deleteError } = await supabaseClient.from('projects').delete().in('id', projectIds);
+    if (deleteError) throw deleteError;
+    await clearLocalProjectCopies(projectIds);
+    unloadDisplayedProject();
+    setActiveProject('Erişilebilir proje yok', 'no-authorized-projects');
+    await refreshSharedProjects();
+    await refreshFieldRecords();
+    showToast(`${projects.length} Supabase projesi ve bağlı kayıtları silindi. Yandex paketleri korundu.`);
+  } catch (error) {
+    showToast(error.message || 'Supabase proje temizliği tamamlanamadı.');
+  } finally {
+    button.disabled = false;
+  }
 }
 function unloadDisplayedProject() {
   clearTimeout(reprojectTimer);
@@ -908,6 +993,19 @@ async function storeRemoteProjectFile(file, sourcePath = null) {
     created_by: authenticatedProfile.user_id
   }, { onConflict: 'storage_path' });
   if (error) throw error;
+}
+async function loadRemoteProjectDxfFiles(projectId = activeProjectId) {
+  if (!backendEnabled || !authenticatedProfile) return [];
+  const { data, error } = await supabaseClient.from('project_files').select('file_name,storage_path,mime_type').eq('project_id', projectId).order('created_at');
+  if (error) throw error;
+  const files = [];
+  for (const item of data || []) {
+    if (!/\.dxf$/i.test(item.file_name || '')) continue;
+    const { data: blob, error: downloadError } = await supabaseClient.storage.from('project-files').download(item.storage_path);
+    if (downloadError) throw new Error(`${item.file_name} merkezi depodan indirilemedi: ${downloadError.message}`);
+    files.push(new File([blob], item.file_name, { type: item.mime_type || 'application/dxf', lastModified: Date.now() }));
+  }
+  return files;
 }
 async function saveRemoteFieldRecord(record) {
   if (!authenticatedProfile || !isBedaEditor()) throw new Error('Kayıt düzeltme yetkisi yalnızca BEDA hesabında.');
@@ -1003,6 +1101,7 @@ async function browseYandexProjects() {
 }
 document.getElementById('refreshSharedProjects').addEventListener('click', refreshSharedProjects);
 document.getElementById('openSharedProject').addEventListener('click', openSharedProject);
+document.getElementById('deleteAllSharedProjects').addEventListener('click', () => { void deleteAllSharedProjects(); });
 document.getElementById('yandexBrowseButton').addEventListener('click', browseYandexProjects);
 document.getElementById('yandexFolderSetupButton').addEventListener('click', async event => {
   const button = event.currentTarget, message = document.getElementById('yandexMessage');
@@ -1020,19 +1119,30 @@ document.getElementById('yandexFolderSetupButton').addEventListener('click', asy
 });
 document.getElementById('saveProjectBundleToYandex').addEventListener('click', async event => {
   if (!isBedaEditor()) { showToast('Yandex paket güncelleme yetkisi yalnızca BEDA hesabında.'); return; }
-  if (!generatedProjectBundleBlob) { showToast('Önce “Tüm projeyi paketle” ile güncel paketi oluştur.'); return; }
   const contractor = projectContractorCode();
   if (!contractor) { showToast('Yandex’e kaydetmek için proje önce bir taşeron klasörüne bağlanmalı.'); return; }
   const button = event.currentTarget; button.disabled = true;
   try {
-    const path = `disk:/PROJELER/${contractor}/${safeFileName(activeProjectName)}.dxfproj.zip`;
+    // Always rebuild in memory. Updating Yandex must not require a browser
+    // download, and must never upload a stale bundle created before edits.
+    await buildProjectBundle(false);
+    const contractorFolder = `disk:/PROJELER/${contractor}/`;
+    const openedYandexPath = activeProjectMeta?.sourcePath;
+    const path = typeof openedYandexPath === 'string'
+      && openedYandexPath.startsWith(contractorFolder)
+      && /\.dxfproj\.zip$/i.test(openedYandexPath)
+      ? openedYandexPath
+      : `${contractorFolder}${safeFileName(activeProjectName)}.dxfproj.zip`;
     const link = await callYandexBridge({ action: 'create-upload', path, overwrite: true });
     if (!link?.href || !String(link.href).startsWith('https://')) throw new Error('Yandex yükleme bağlantısı alınamadı.');
     const response = await fetch(link.href, { method: 'PUT', body: generatedProjectBundleBlob, headers: { 'Content-Type': 'application/zip' } });
     if (!response.ok) throw new Error(`Yandex paketi kaydedemedi (HTTP ${response.status}).`);
+    activeProjectMeta = { ...activeProjectMeta, contractorCode: contractor, sourcePath: path };
+    localStorage.setItem(projectContractorStorageKey(), contractor);
     await ensureRemoteProject(`disk:/PROJELER/${contractor}`);
     const { error } = await supabaseClient.from('projects').update({ package_storage_path: path, package_updated_at: new Date().toISOString() }).eq('id', activeProjectId);
     if (error) throw error;
+    renderProjectContractorSelection();
     showToast('Güncel proje paketi Yandex Disk’e kaydedildi.');
   } catch (error) { showToast(error.message || 'Yandex paketi kaydedilemedi.'); }
   finally { button.disabled = false; }
@@ -1341,11 +1451,10 @@ document.getElementById('saveFieldRecord').addEventListener('click', async () =>
   finally { button.disabled = false; }
 });
 
-document.getElementById('saveProjectBundle').addEventListener('click', async event => {
-  if (!isBedaEditor()) { showToast('Proje paketi oluşturma yetkisi yalnızca BEDA hesabında.'); return; }
-  const button = event.currentTarget; button.disabled = true;
-  try {
-  const dxfEntries = Array.from(cadDxfFiles.values());
+async function buildProjectBundle(download = false) {
+    let dxfEntries = Array.from(cadDxfFiles.values());
+    if (!dxfEntries.length) dxfEntries = await loadRemoteProjectDxfFiles();
+    if (!dxfEntries.length) throw new Error('Paketlenecek DXF bulunamadı. Önce proje DXF dosyasını aç, ardından paketi oluştur.');
     const records = await getProjectRecords();
     const zip = new JSZip();
     const manifest = {
@@ -1389,8 +1498,16 @@ document.getElementById('saveProjectBundle').addEventListener('click', async eve
     anchor.download = `${safeFileName(activeProjectName)}.dxfproj.zip`;
     anchor.textContent = `⬇️ PROJE PAKETİNİ İNDİR · ${manifest.dxfFiles.length} DXF / ${records.length} KAYIT`;
     anchor.hidden = false;
-    anchor.click();
-    showToast(`Paket hazır · ${manifest.dxfFiles.length} DXF ve ${records.length} saha kaydı.`);
+    if (download) anchor.click();
+    return { dxfCount: manifest.dxfFiles.length, recordCount: records.length, blob };
+}
+
+document.getElementById('saveProjectBundle').addEventListener('click', async event => {
+  if (!isBedaEditor()) { showToast('Proje paketi oluşturma yetkisi yalnızca BEDA hesabında.'); return; }
+  const button = event.currentTarget; button.disabled = true;
+  try {
+    const bundle = await buildProjectBundle(true);
+    showToast(`Paket hazır · ${bundle.dxfCount} DXF ve ${bundle.recordCount} saha kaydı.`);
   } catch (error) { console.error(error); showToast(error.message || 'Proje paketi oluşturulamadı.'); }
   finally { button.disabled = false; }
 });
@@ -1401,8 +1518,30 @@ async function importProjectBundle(file, sourcePath = null) {
   const zip = await JSZip.loadAsync(file);
   const manifestFile = zip.file('project.json');
   if (!manifestFile) throw new Error('Bu ZIP içinde project.json yok. “Tüm projeyi paketle” ile oluşturulan dosyayı seç.');
-  const manifest = JSON.parse(await manifestFile.async('string'));
-  if (manifest.format !== 'dxf-field-project' || ![1, 2].includes(Number(manifest.schemaVersion))) throw new Error('Proje paketi biçimi desteklenmiyor.');
+  let manifest = JSON.parse(await manifestFile.async('string'));
+  const isCurrentPackage = manifest.format === 'dxf-field-project' && [1, 2].includes(Number(manifest.schemaVersion));
+  if (!isCurrentPackage) {
+    // Early packages used a different manifest label (and some stored only the
+    // DXF paths in the ZIP). Accept them only when the ZIP itself proves that
+    // it is a project package, then normalize without discarding their data.
+    const legacyDxfFiles = Object.values(zip.files)
+      .filter(entry => !entry.dir && /\.dxf$/i.test(entry.name))
+      .map(entry => ({ name: entry.name.split('/').at(-1), path: entry.name }));
+    if (!legacyDxfFiles.length) throw new Error('Proje paketi biçimi desteklenmiyor. Pakette açılabilir bir DXF çizimi bulunamadı.');
+    const legacyRecords = Array.isArray(manifest.records) ? manifest.records
+      : Array.isArray(manifest.fieldRecords) ? manifest.fieldRecords
+      : Array.isArray(manifest.field_records) ? manifest.field_records
+      : Array.isArray(manifest.sahaKayitlari) ? manifest.sahaKayitlari : [];
+    manifest = {
+      ...manifest,
+      format: 'dxf-field-project', schemaVersion: 1,
+      project: manifest.project || { id: manifest.projectId || null, name: manifest.projectName || null },
+      dxfFiles: Array.isArray(manifest.dxfFiles) && manifest.dxfFiles.length ? manifest.dxfFiles : legacyDxfFiles,
+      records: legacyRecords,
+      inspection: manifest.inspection || manifest.inspectionSnapshot || null
+    };
+    showToast('Eski proje paketi açılıyor; çizim ve saha kayıtları korunacak.');
+  }
   if (!Array.isArray(manifest.records) || !Array.isArray(manifest.dxfFiles)) throw new Error('Proje paketi eksik veya bozuk.');
   const dxfEntries = manifest.dxfFiles.filter(item => item?.name && /\.dxf$/i.test(item.name));
   const projectName = dxfEntries.length === 1
@@ -1423,6 +1562,11 @@ async function importProjectBundle(file, sourcePath = null) {
   }
   if (!canonicalKey) canonicalKey = `bundle-${await contentFingerprint(file)}`;
   const projectId = manifest.project?.id || `bundle-${canonicalKey.replace(/[^a-f0-9]/g, '').slice(0, 32)}`;
+  let recoveredDxfFiles = [];
+  if (!dxfEntries.length) {
+    recoveredDxfFiles = await loadRemoteProjectDxfFiles(projectId);
+    if (!recoveredDxfFiles.length) throw new Error('Bu proje paketi DXF içermiyor. İlgili DXF dosyasını bir kez açıp paketi yeniden oluştur.');
+  }
   document.getElementById('clearMap').click();
   setActiveProject(projectName, projectId, {
     canonicalKey,
@@ -1435,16 +1579,24 @@ async function importProjectBundle(file, sourcePath = null) {
     document.querySelectorAll('.dom-grid button').forEach(button => button.classList.toggle('selected', Number(button.textContent) === Number(manifest.map.crs.cm)));
     userDatum = manifest.map.crs.datum === 'ED50' ? 'ED50' : 'ITRF'; userDom = Number(manifest.map.crs.cm) || null;
   }
-  const done = [];
+  const done = []; let parsedDxfCount = 0;
   for (const item of dxfEntries) {
     if (!item?.path || !item?.name) continue;
     const entry = zip.file(item.path);
     if (!entry) { done.push(`${item.name} — pakette bulunamadı`); continue; }
     const data = await entry.async('arraybuffer');
     const dxf = new File([data], item.name, { type: 'application/dxf', lastModified: Date.now() });
-    try { const count = await parseDxf(dxf); if (backendEnabled && isBedaEditor()) await storeRemoteProjectFile(dxf, sourcePath || item.path); done.push(`${item.name} (${count} nesne)`); }
+    try { const count = await parseDxf(dxf); parsedDxfCount++; if (backendEnabled && isBedaEditor()) await storeRemoteProjectFile(dxf, sourcePath || item.path); done.push(`${item.name} (${count} nesne)`); }
     catch (error) { console.error(error); done.push(`${item.name} — açılamadı`); }
   }
+  if (!parsedDxfCount && !recoveredDxfFiles.length) recoveredDxfFiles = await loadRemoteProjectDxfFiles(projectId);
+  if (!parsedDxfCount && recoveredDxfFiles.length) {
+    for (const dxf of recoveredDxfFiles) {
+      try { const count = await parseDxf(dxf); parsedDxfCount++; done.push(`${dxf.name} (merkezi depodan ${count} nesne)`); }
+      catch (error) { console.error(error); done.push(`${dxf.name} — merkezi depodan açılamadı`); }
+    }
+  }
+  if (!parsedDxfCount) throw new Error('Paket içindeki DXF çizimi açılamadı.');
   let importedRecords = 0;
   for (const record of manifest.records) {
     if (!record || !Number.isFinite(record.lat) || !Number.isFinite(record.lon)) continue;
@@ -1493,21 +1645,59 @@ const inspectionNote = document.getElementById('inspectionNote');
 const inspectionPhotoInput = document.getElementById('inspectionPhotoInput');
 const inspectionPhotoStage = document.getElementById('inspectionPhotoStage');
 const inspectionPermissionNotice = document.getElementById('inspectionPermissionNotice');
+const inspectionPhotoSelection = document.getElementById('inspectionPhotoSelection');
+const deleteManualInspectionPointButton = document.getElementById('deleteManualInspectionPoint');
+const inspectionLegacyRecords = document.getElementById('inspectionLegacyRecords');
+const inspectionPhotoViewer = document.getElementById('inspectionPhotoViewer');
+const inspectionPhotoViewerImage = document.getElementById('inspectionPhotoViewerImage');
+const inspectionPhotoViewerCaption = document.getElementById('inspectionPhotoViewerCaption');
+const inspectionPhotoViewerClose = document.getElementById('inspectionPhotoViewerClose');
+const pendingInspectionPhotoUrls = new Set();
 
 function emptyInspectionState(projectId = activeProjectId) {
   return { projectId, elements: new Map(), points: [], results: [], nonconformities: [], events: [], attachments: [], localOnly: !backendEnabled };
 }
+// The transposition checklist has only a neutral record item for now. Its
+// technical checklist is deliberately kept out of this change set.
+const TRANSPOSITION_CHECKLIST = { id: 'transposition', label: 'OG transpozisyon', groups: [{ id: 'record', label: 'Kayıt', items: [{ id: 'transposition-record', label: 'Transpozisyon kaydı' }] }] };
 function inspectionChecklistFor(target = selectedInspectionTarget) {
+  if (target?.pointType === 'transposition' || target?.elementType === 'transposition') return TRANSPOSITION_CHECKLIST;
   return INSPECTION_CONFIG.checklists?.[target?.pointType === 'underground' || target?.elementType === 'underground_route' ? 'underground' : 'pole'] || null;
 }
 function inspectionItems(checklist) {
   return (checklist?.groups || []).flatMap(group => (group.items || []).map(item => ({ ...item, groupId: group.id, groupLabel: group.label })));
 }
+function renderChecklistItemPhotoGallery(container, result) {
+  container.replaceChildren();
+  if (!result) return;
+  const attachments = inspectionState.attachments.filter(item => item.resultId === result.id);
+  for (const attachment of attachments) {
+    const figure = document.createElement('figure'); const caption = document.createElement('figcaption');
+    caption.textContent = attachment.stage === 'after' ? 'SONRA' : 'ÖNCE'; figure.append(caption);
+    void inspectionAttachmentUrl(attachment).then(url => {
+      if (!url) return;
+      const view = document.createElement('button'); view.type = 'button'; view.className = 'inspection-photo-view'; view.title = 'Büyük görüntüle';
+      const image = document.createElement('img'); image.src = url; image.alt = `${caption.textContent} · ${attachment.fileName || 'fotoğraf'}`;
+      view.append(image); view.addEventListener('click', () => { void openInspectionPhotoViewer(attachment); }); figure.insertBefore(view, caption);
+    });
+    if (isBedaEditor()) {
+      const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'inspection-photo-remove'; remove.textContent = 'KALDIR';
+      remove.addEventListener('click', () => { void deleteInspectionAttachment(attachment); }); figure.append(remove);
+    }
+    container.append(figure);
+  }
+}
 function inspectionPointForTarget(target = selectedInspectionTarget) {
   if (!target) return null;
-  if (target.pointId) return inspectionState.points.find(point => point.id === target.pointId) || null;
-  return inspectionState.points.find(point => point.elementId === target.elementId && point.pointType === target.pointType) || null;
+  if (target.pointId) return inspectionState.points.find(point => point.id === target.pointId && !inspectionPointIsDeleted(point)) || null;
+  return inspectionState.points.find(point => point.elementId === target.elementId && point.pointType === target.pointType && !inspectionPointIsDeleted(point)) || null;
 }
+function inspectionPointIsDeleted(point) { return Boolean(point?.metadata?.deletedAt); }
+function isLegacyTextPoleElement(element) {
+  return element?.elementType === 'pole' && element?.metadata?.detected && element?.metadata?.candidateVersion !== 2;
+}
+function visibleInspectionElements() { return Array.from(inspectionState.elements.values()).filter(element => !isLegacyTextPoleElement(element) && !(element.elementType === 'underground_route' && element.metadata?.detected)); }
+function targetPointType(target) { return target?.elementType === 'underground_route' ? 'underground' : target?.elementType === 'transposition' ? 'transposition' : target?.elementType === 'box' ? 'box' : target?.elementType === 'lighting' ? 'lighting' : target?.pointType || 'pole'; }
 function inspectionStatus(target) {
   const point = inspectionPointForTarget(target);
   if (!point) return 'not-checked';
@@ -1526,14 +1716,15 @@ function statusMatchesFilter(status) {
     || inspectionFilter === 'unchecked' && status === 'not-checked';
 }
 function markerIcon(target, status) {
-  const kind = target.pointType === 'underground' || target.elementType === 'underground_route' ? 'underground' : target.elementType === 'manual' ? 'manual' : 'pole';
+  const pointType = targetPointType(target);
+  const kind = pointType === 'underground' ? 'underground' : pointType === 'box' ? 'box' : pointType === 'lighting' ? 'lighting' : pointType === 'transposition' ? 'transposition' : target.elementType === 'manual' ? 'manual' : 'pole';
   return L.divIcon({ className: '', iconSize: [18, 18], iconAnchor: [9, 9], html: `<span class="inspection-marker ${kind} ${status}"></span>` });
 }
 function renderInspectionMarkers() {
   inspectionMarkerLayer.clearLayers();
   const targets = [];
-  for (const element of inspectionState.elements.values()) targets.push({ ...element, pointType: element.elementType === 'underground_route' ? 'underground' : 'pole' });
-  for (const point of inspectionState.points.filter(point => !point.elementId)) targets.push({ ...point, pointId: point.id, elementType: 'manual' });
+  for (const element of visibleInspectionElements()) targets.push({ ...element, pointType: targetPointType(element) });
+  for (const point of inspectionState.points.filter(point => !point.elementId && !inspectionPointIsDeleted(point))) targets.push({ ...point, pointId: point.id, elementType: 'manual' });
   for (const target of targets) {
     if (!Number.isFinite(target.lat) || !Number.isFinite(target.lon)) continue;
     const status = inspectionStatus(target);
@@ -1544,8 +1735,8 @@ function renderInspectionMarkers() {
   }
 }
 function inspectionSummaryCounts() {
-  const targets = [...inspectionState.elements.values()].map(element => ({ ...element, pointType: element.elementType === 'underground_route' ? 'underground' : 'pole' }))
-    .concat(inspectionState.points.filter(point => !point.elementId).map(point => ({ ...point, pointId: point.id, elementType: 'manual' })));
+  const targets = visibleInspectionElements().map(element => ({ ...element, pointType: targetPointType(element) }))
+    .concat(inspectionState.points.filter(point => !point.elementId && !inspectionPointIsDeleted(point)).map(point => ({ ...point, pointId: point.id, elementType: 'manual' })));
   return targets.reduce((counts, target) => {
     counts.total++;
     const status = inspectionStatus(target);
@@ -1595,7 +1786,15 @@ function renderInspectionChecklist() {
       quality.value = current?.qualityStatus || 'NOT_CHECKED';
       const syncQuality = () => { quality.disabled = completion.value !== 'DONE'; if (quality.disabled) quality.value = 'NOT_CHECKED'; };
       completion.addEventListener('change', syncQuality); syncQuality(); controls.append(completion, quality);
-      row.append(label, controls, help); block.append(row);
+      const itemPhotos = document.createElement('div'); itemPhotos.className = 'checklist-item-photos';
+      renderChecklistItemPhotoGallery(itemPhotos, current);
+      const photoControls = document.createElement('div'); photoControls.className = 'checklist-item-photo';
+      const photoInput = document.createElement('input'); photoInput.type = 'file'; photoInput.accept = 'image/*'; photoInput.multiple = true; photoInput.dataset.checklistPhoto = item.id;
+      photoInput.setAttribute('aria-label', `${item.label} fotoğrafları`);
+      const photoStage = document.createElement('select'); photoStage.dataset.checklistPhotoStage = item.id; photoStage.setAttribute('aria-label', `${item.label} fotoğraf türü`);
+      photoStage.append(new Option('ÖNCE', 'before'), new Option('SONRA', 'after'));
+      photoControls.append(photoInput, photoStage);
+      row.append(label, controls, help, itemPhotos, photoControls); block.append(row);
     }
     inspectionChecklist.append(block);
   }
@@ -1609,12 +1808,46 @@ async function inspectionAttachmentUrl(attachment) {
   if (error) return null;
   return data?.signedUrl || null;
 }
+async function openInspectionPhotoViewer(attachment) {
+  inspectionPhotoViewerImage.removeAttribute('src');
+  inspectionPhotoViewerImage.alt = attachment.fileName || 'Denetim fotoğrafı';
+  inspectionPhotoViewerCaption.textContent = `${attachment.stage === 'after' ? 'SONRA' : 'ÖNCE'} · ${attachment.fileName || 'Fotoğraf'}`;
+  inspectionPhotoViewer.hidden = false;
+  const url = await inspectionAttachmentUrl(attachment);
+  if (!url) { inspectionPhotoViewerCaption.textContent = 'Fotoğraf açılamadı.'; return; }
+  inspectionPhotoViewerImage.src = url;
+}
+function closeInspectionPhotoViewer() { inspectionPhotoViewer.hidden = true; inspectionPhotoViewerImage.removeAttribute('src'); }
 function renderInspectionHistory() {
   inspectionHistory.replaceChildren();
   const point = inspectionPointForTarget();
   if (!point) { const empty = document.createElement('div'); empty.className = 'message'; empty.textContent = 'Henüz seçili kontrol noktası yok.'; inspectionHistory.append(empty); return; }
   const records = inspectionState.nonconformities.filter(item => item.pointId === point.id).sort((a, b) => Date.parse(b.updatedAt || b.createdAt || 0) - Date.parse(a.updatedAt || a.createdAt || 0));
-  if (!records.length) { const empty = document.createElement('div'); empty.className = 'message'; empty.textContent = 'Bu noktada uygunsuzluk kaydı yok.'; inspectionHistory.append(empty); return; }
+  const resultIds = new Set(inspectionState.results.filter(item => item.pointId === point.id).map(item => item.id));
+  const pointAttachments = inspectionState.attachments.filter(item => resultIds.has(item.resultId) || records.some(record => record.id === item.nonconformityId));
+  if (pointAttachments.length) {
+    const galleryTitle = document.createElement('small'); galleryTitle.textContent = 'BU NOKTANIN FOTOĞRAFLARI'; inspectionHistory.append(galleryTitle);
+    const gallery = document.createElement('div'); gallery.className = 'inspection-point-photos';
+    for (const attachment of pointAttachments) {
+      const figure = document.createElement('figure'); const caption = document.createElement('figcaption');
+      caption.textContent = attachment.stage === 'after' ? 'SONRA' : 'ÖNCE'; figure.append(caption);
+      void inspectionAttachmentUrl(attachment).then(url => {
+        if (!url) return;
+        const view = document.createElement('button'); view.type = 'button'; view.className = 'inspection-photo-view'; view.title = 'Büyük görüntüle';
+        const image = document.createElement('img'); image.src = url; image.alt = `${caption.textContent} · ${attachment.fileName || 'fotoğraf'}`; view.append(image);
+        view.addEventListener('click', () => { void openInspectionPhotoViewer(attachment); }); figure.insertBefore(view, caption);
+      });
+      if (isBedaEditor()) {
+        const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'inspection-photo-remove'; remove.textContent = 'FOTOĞRAFI KALDIR';
+        remove.addEventListener('click', () => { void deleteInspectionAttachment(attachment); }); figure.append(remove);
+      }
+      gallery.append(figure);
+    }
+    inspectionHistory.append(gallery);
+  }
+  if (!records.length) {
+    const empty = document.createElement('div'); empty.className = 'message'; empty.textContent = pointAttachments.length ? 'Bu noktada uygunsuzluk kaydı yok; fotoğraflar yukarıda korunuyor.' : 'Bu noktada uygunsuzluk kaydı yok.'; inspectionHistory.append(empty); return;
+  }
   for (const record of records) {
     const card = document.createElement('article'); card.className = `nonconformity-card ${record.state === 'correction_pending' ? 'pending' : record.state === 'closed' ? 'closed' : ''}`;
     const heading = document.createElement('strong'); heading.textContent = `${record.state === 'closed' ? '🟢 KAPATILDI' : record.state === 'correction_pending' ? '🟡 DÜZELTME BEKLİYOR' : '🔴 UYGUNSUZ'}`;
@@ -1630,8 +1863,14 @@ function renderInspectionHistory() {
         caption.textContent = attachment.stage === 'after' ? 'SONRA' : 'ÖNCE'; figure.append(caption);
         void inspectionAttachmentUrl(attachment).then(url => {
           if (!url) return;
-          const image = document.createElement('img'); image.src = url; image.alt = `${caption.textContent} fotoğrafı`; figure.insertBefore(image, caption);
+          const view = document.createElement('button'); view.type = 'button'; view.className = 'inspection-photo-view'; view.title = 'Büyük görüntüle';
+          const image = document.createElement('img'); image.src = url; image.alt = `${caption.textContent} fotoğrafı`; view.append(image);
+          view.addEventListener('click', () => { void openInspectionPhotoViewer(attachment); }); figure.insertBefore(view, caption);
         });
+        if (isBedaEditor()) {
+          const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'inspection-photo-remove'; remove.textContent = 'FOTOĞRAFI KALDIR';
+          remove.addEventListener('click', () => { void deleteInspectionAttachment(attachment); }); figure.append(remove);
+        }
         photos.append(figure);
       }
       card.append(photos);
@@ -1645,9 +1884,46 @@ function renderInspectionHistory() {
     inspectionHistory.append(card);
   }
 }
+function clearPendingInspectionPhotoUrls() {
+  for (const url of pendingInspectionPhotoUrls) URL.revokeObjectURL(url);
+  pendingInspectionPhotoUrls.clear();
+}
+function renderInspectionPhotoSelection() {
+  clearPendingInspectionPhotoUrls(); inspectionPhotoSelection.replaceChildren();
+  const photos = Array.from(inspectionPhotoInput.files || []).filter(file => /^image\//i.test(file.type || '') || /\.(?:jpe?g|png|webp|gif|heic|heif)$/i.test(file.name || ''));
+  inspectionPhotoSelection.hidden = !photos.length;
+  for (const photo of photos) {
+    const figure = document.createElement('figure'); const image = document.createElement('img'); const name = document.createElement('small');
+    const url = URL.createObjectURL(photo); pendingInspectionPhotoUrls.add(url); image.src = url; image.alt = photo.name || 'Seçilen fotoğraf'; name.textContent = photo.name || 'Fotoğraf'; figure.append(image, name); inspectionPhotoSelection.append(figure);
+  }
+}
+async function renderInspectionLegacyRecords() {
+  if (!inspectionLegacyRecords) return;
+  inspectionLegacyRecords.replaceChildren();
+  try {
+    const records = await getProjectRecords();
+    if (!records.length) { const empty = document.createElement('div'); empty.className = 'message'; empty.textContent = 'Bu projede bağımsız saha kaydı yok.'; inspectionLegacyRecords.append(empty); return; }
+    for (const record of records) {
+      const card = document.createElement('article'); card.className = 'inspection-legacy-record';
+      const title = document.createElement('strong'); title.textContent = record.title || record.category || 'Saha kaydı';
+      const note = document.createElement('p'); note.textContent = record.notes || 'Not girilmemiş.';
+      const meta = document.createElement('small'); meta.textContent = `${record.category || 'Diğer'} · ${new Date(record.createdAt || Date.now()).toLocaleString('tr-TR')}`;
+      card.append(title, note, meta);
+      const photoUrl = await getFieldPhotoUrl(record);
+      if (photoUrl) { const image = document.createElement('img'); image.src = photoUrl; image.alt = title.textContent; card.append(image); }
+      if (Number.isFinite(record.lat) && Number.isFinite(record.lon)) {
+        const show = document.createElement('button'); show.type = 'button'; show.textContent = 'HARİTADA GÖSTER'; show.addEventListener('click', () => map.setView([record.lat, record.lon], Math.max(17, map.getZoom()))); card.append(show);
+      }
+      inspectionLegacyRecords.append(card);
+    }
+  } catch (error) {
+    const message = document.createElement('div'); message.className = 'message error'; message.textContent = `Saha kayıtları açılamadı: ${error.message || 'bağlantı hatası'}`; inspectionLegacyRecords.append(message);
+  }
+}
 function renderInspectionSelection() {
   const target = selectedInspectionTarget;
   inspectionEditor.hidden = !target;
+  deleteManualInspectionPointButton.hidden = true;
   if (!target) {
     inspectionSelection.textContent = 'DXF üzerinde algılanan bir direğe ya da yeraltı kontrol noktasına dokun. Algılanamayan yer için manuel nokta ekleyebilirsin.';
     inspectionPermissionNotice.textContent = isBedaEditor() ? '' : 'Bu hesap yalnızca görüntüleme yapabilir.';
@@ -1659,11 +1935,18 @@ function renderInspectionSelection() {
   const info = document.createElement('small'); info.textContent = `${target.lat.toFixed(6)}, ${target.lon.toFixed(6)} · ${status === 'not-checked' ? 'Kontrol edilmedi' : status}`;
   inspectionSelection.append(title, info);
   inspectionPermissionNotice.textContent = isBedaEditor() ? 'Kayıtlar BEDA hesabı tarafından merkezi projeye yazılır.' : 'Salt okunur erişim: checklist ve uygunsuzluk geçmişini görüntüleyebilirsin.';
+  const point = inspectionPointForTarget(target);
+  if (point?.metadata?.manual) {
+    deleteManualInspectionPointButton.hidden = false;
+    deleteManualInspectionPointButton.disabled = !isBedaEditor();
+  }
+  renderInspectionChecklist();
   for (const control of inspectionEditor.querySelectorAll('select,textarea,input,button')) control.disabled = !isBedaEditor();
-  renderInspectionChecklist(); renderInspectionHistory();
+  renderInspectionHistory();
 }
 function renderInspectionDashboard() {
   renderInspectionMarkers(); renderInspectionSummary(); renderInspectionSelection();
+  void renderInspectionLegacyRecords();
   document.querySelectorAll('[data-inspection-filter]').forEach(button => button.classList.toggle('selected', button.dataset.inspectionFilter === inspectionFilter));
 }
 async function persistLocalInspectionState() {
@@ -1709,7 +1992,7 @@ async function refreshInspectionData() {
       if (responses.every(response => !response.error)) {
         const remote = projectRowsToInspection({ elements: responses[0].data, points: responses[1].data, results: responses[2].data, nonconformities: responses[3].data, events: responses[4].data, attachments: responses[5].data });
         for (const element of existingElements) if (!remote.elements.some(item => item.elementId === element.elementId)) remote.elements.push(element);
-        applyInspectionState(remote); renderInspectionDashboard(); return;
+        applyInspectionState(remote); renderInspectionDashboard(); void migrateLegacyPoleBindings(remote.elements.filter(element => element.metadata?.candidateVersion === 2)); return;
       }
     }
     const local = await inspectionRequest('readonly', store => store.get(requestedProject));
@@ -1720,6 +2003,7 @@ async function refreshInspectionData() {
     applyInspectionState({ elements: existingElements, localOnly: true });
   }
   renderInspectionDashboard();
+  void migrateLegacyPoleBindings(Array.from(inspectionState.elements.values()).filter(element => element.metadata?.candidateVersion === 2));
 }
 async function persistInspectionPoint(point) {
   if (!isBedaEditor() || !backendEnabled) { inspectionState.localOnly = true; await persistLocalInspectionState(); return; }
@@ -1740,15 +2024,53 @@ async function persistInspectionElements(elements) {
     if (error) throw error;
   } catch (error) { console.warn('Algılanan DXF elemanları merkezi depoya yazılamadı:', error); inspectionState.localOnly = true; await persistLocalInspectionState(); }
 }
+async function migrateLegacyPoleBindings(elements) {
+  const replacements = new Map();
+  for (const element of elements) for (const legacyId of element.metadata?.legacyElementIds || []) {
+    if (legacyId && legacyId !== element.elementId) replacements.set(legacyId, element.elementId);
+  }
+  if (!replacements.size) return;
+  const changedPoints = [], changedResults = [], changedNonconformities = [];
+  for (const point of inspectionState.points) {
+    const replacement = replacements.get(point.elementId);
+    if (replacement) { const legacyElementId = point.elementId; point.elementId = replacement; point.metadata = { ...(point.metadata || {}), legacyPoleElementId: point.metadata?.legacyPoleElementId || legacyElementId, migratedAt: new Date().toISOString() }; changedPoints.push(point); }
+  }
+  for (const result of inspectionState.results) {
+    const replacement = replacements.get(result.elementId);
+    if (replacement) { result.elementId = replacement; changedResults.push(result); }
+  }
+  for (const record of inspectionState.nonconformities) {
+    const replacement = replacements.get(record.elementId);
+    if (replacement) { record.elementId = replacement; changedNonconformities.push(record); }
+  }
+  if (!changedPoints.length && !changedResults.length && !changedNonconformities.length) return;
+  try {
+    if (backendEnabled && isBedaEditor()) {
+      for (const point of changedPoints) await persistInspectionPoint(point);
+      for (const result of changedResults) await persistInspectionResult(result);
+      for (const record of changedNonconformities) await persistNonconformity(record);
+    }
+    await persistLocalInspectionState();
+  } catch (error) {
+    inspectionState.localOnly = true;
+    await persistLocalInspectionState();
+    console.warn('Eski direk işaretleri yerel yedeğe taşındı:', error);
+  }
+  renderInspectionDashboard();
+}
 function registerDetectedElements(candidates, sourceFileName) {
   const accepted = [];
   for (const candidate of (candidates || []).slice(0, 2500)) {
-    if (!candidate || !Number.isFinite(candidate.lat) || !Number.isFinite(candidate.lon) || !['pole', 'underground_route'].includes(candidate.elementType)) continue;
+    if (!candidate || !Number.isFinite(candidate.lat) || !Number.isFinite(candidate.lon) || !['pole', 'box', 'lighting', 'transposition'].includes(candidate.elementType)) continue;
     const elementId = String(candidate.elementId || `${candidate.elementType}:${candidate.sourceHandle || ''}:${candidate.lat.toFixed(6)}:${candidate.lon.toFixed(6)}`);
     const element = { ...candidate, elementId, sourceFileName, metadata: { ...(candidate.metadata || {}), sourceFileName } };
     inspectionState.elements.set(elementId, element); accepted.push(element);
   }
-  if (accepted.length) { renderInspectionDashboard(); void persistInspectionElements(accepted); }
+  if (accepted.length) {
+    renderInspectionDashboard();
+    void persistInspectionElements(accepted);
+    void migrateLegacyPoleBindings(accepted);
+  }
 }
 function selectInspectionTarget(target) {
   selectedInspectionTarget = { ...target };
@@ -1793,16 +2115,44 @@ async function persistNonconformity(record, eventType = null, previousState = nu
     if (eventError) throw eventError; inspectionState.events.push(event);
   }
 }
-async function addInspectionAttachment(file, nonconformity, result) {
+async function addInspectionAttachment(file, nonconformity, result, stage = inspectionPhotoStage.value) {
   if (!file) return;
-  const attachment = { id: makeRecordId(), nonconformityId: nonconformity?.id || null, resultId: result?.id || null, stage: inspectionPhotoStage.value === 'after' ? 'after' : 'before', fileName: file.name, mimeType: file.type, createdAt: new Date().toISOString(), blob: file };
+  const attachment = { id: makeRecordId(), nonconformityId: nonconformity?.id || null, resultId: result?.id || null, stage: stage === 'after' ? 'after' : 'before', fileName: file.name, mimeType: file.type, createdAt: new Date().toISOString(), blob: file };
   if (!backendEnabled || !isBedaEditor()) { inspectionState.attachments.push(attachment); inspectionState.localOnly = true; await persistLocalInspectionState(); return; }
-  const owner = nonconformity?.id || result?.id || attachment.id;
-  attachment.storagePath = `${activeProjectId}/${owner}/${safeFileName(file.name)}`;
-  const { error: uploadError } = await supabaseClient.storage.from('inspection-photos').upload(attachment.storagePath, file, { upsert: false, contentType: file.type || 'application/octet-stream' });
-  if (uploadError) throw uploadError;
-  const { error } = await supabaseClient.from('inspection_attachments').insert({ id: attachment.id, project_id: activeProjectId, nonconformity_id: attachment.nonconformityId, inspection_result_id: attachment.resultId, stage: attachment.stage, storage_path: attachment.storagePath, file_name: attachment.fileName, mime_type: attachment.mimeType, created_by: authenticatedProfile.user_id });
-  if (error) throw error; delete attachment.blob; inspectionState.attachments.push(attachment);
+  await persistInspectionAttachment(attachment);
+  inspectionState.attachments.push(attachment);
+}
+async function persistInspectionAttachment(attachment) {
+  if (!backendEnabled || !isBedaEditor()) { inspectionState.localOnly = true; await persistLocalInspectionState(); return; }
+  const owner = attachment.nonconformityId || attachment.resultId || attachment.id;
+  attachment.storagePath ||= `${activeProjectId}/${owner}/${safeFileName(attachment.id)}-${safeFileName(attachment.fileName || 'foto.jpg')}`;
+  if (attachment.blob) {
+    const { error: uploadError } = await supabaseClient.storage.from('inspection-photos').upload(attachment.storagePath, attachment.blob, { upsert: true, contentType: attachment.mimeType || attachment.blob.type || 'application/octet-stream' });
+    if (uploadError) throw uploadError;
+  }
+  const { error } = await supabaseClient.from('inspection_attachments').upsert({ id: attachment.id, project_id: activeProjectId, nonconformity_id: attachment.nonconformityId, inspection_result_id: attachment.resultId, stage: attachment.stage, storage_path: attachment.storagePath, file_name: attachment.fileName, mime_type: attachment.mimeType, created_by: authenticatedProfile.user_id }, { onConflict: 'id' });
+  if (error) throw error;
+  delete attachment.blob;
+}
+async function deleteInspectionAttachment(attachment) {
+  if (!isBedaEditor()) { showToast('Fotoğraf kaldırma yetkisi yalnızca BEDA hesabında.'); return; }
+  if (!attachment?.id) return;
+  if (!window.confirm(`“${attachment.fileName || 'Bu fotoğraf'}” kaldırılacak. Bu işlem geri alınamaz. Devam edilsin mi?`)) return;
+  const index = inspectionState.attachments.findIndex(item => item.id === attachment.id);
+  if (index < 0) return;
+  try {
+    if (backendEnabled) {
+      const { error } = await supabaseClient.from('inspection_attachments').delete().eq('id', attachment.id);
+      if (error) throw error;
+      if (attachment.storagePath) {
+        const { error: storageError } = await supabaseClient.storage.from('inspection-photos').remove([attachment.storagePath]);
+        if (storageError) console.warn('Silinen denetim fotoğrafı depodan kaldırılamadı:', storageError);
+      }
+    }
+    inspectionState.attachments.splice(index, 1);
+    await persistLocalInspectionState();
+    renderInspectionDashboard(); showToast('Seçilen fotoğraf kaldırıldı.');
+  } catch (error) { showToast(error.message || 'Fotoğraf kaldırılamadı.'); }
 }
 async function saveSelectedInspection() {
   if (!isBedaEditor()) { showToast('Checklist kaydetme yetkisi yalnızca BEDA hesabında.'); return; }
@@ -1814,30 +2164,61 @@ async function saveSelectedInspection() {
     return { item, completion, quality };
   });
   if (entries.some(entry => entry.quality === 'NON_COMPLIANT') && !inspectionNote.value.trim()) throw new Error('Uygunsuz imalat için açıklama gir.');
-  let attachmentTarget = null;
+  const resultsByItem = new Map(), nonconformitiesByItem = new Map();
   for (const entry of entries) {
     const existing = inspectionState.results.find(result => result.pointId === point.id && result.checklistItemId === entry.item.id);
     const result = { id: existing?.id || makeRecordId(), pointId: point.id, elementId: point.elementId || null, checklistId: checklist.id, checklistItemId: entry.item.id, completionStatus: entry.completion, qualityStatus: entry.quality, note: inspectionNote.value.trim(), referenceSnapshot: { criteria: entry.item.criteria || {}, technicalNote: entry.item.technicalNote || '', referenceImage: entry.item.referenceImage || null, referenceDocument: entry.item.referenceDocument || null, referencePage: entry.item.referencePage || null, configVersion: INSPECTION_CONFIG.version }, createdAt: existing?.createdAt || new Date().toISOString(), updatedAt: new Date().toISOString() };
     if (existing) Object.assign(existing, result); else inspectionState.results.push(result);
     await persistInspectionResult(result);
+    resultsByItem.set(entry.item.id, result);
     if (entry.quality === 'NON_COMPLIANT') {
       let nonconformity = inspectionState.nonconformities.find(item => item.pointId === point.id && item.checklistItemId === entry.item.id && item.state !== 'closed');
       if (!nonconformity) {
         nonconformity = { id: makeRecordId(), pointId: point.id, elementId: point.elementId || null, checklistItemId: entry.item.id, contractorCode: projectContractorCode(), description: inspectionNote.value.trim(), lat: point.lat, lon: point.lon, state: 'active', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
         inspectionState.nonconformities.push(nonconformity); await persistNonconformity(nonconformity, 'created');
       }
-      attachmentTarget ||= { nonconformity, result };
+      nonconformitiesByItem.set(entry.item.id, nonconformity);
     }
   }
-  const photo = inspectionPhotoInput.files?.[0];
-  if (photo) await addInspectionAttachment(photo, attachmentTarget?.nonconformity, attachmentTarget?.result);
-  inspectionPhotoInput.value = ''; inspectionNote.value = ''; renderInspectionDashboard(); showToast('Checklist sonucu kaydedildi.');
+  const itemPhotoInputs = Array.from(inspectionChecklist.querySelectorAll('input[data-checklist-photo]'));
+  const photos = itemPhotoInputs.flatMap(input => Array.from(input.files || []));
+  const unsupported = photos.find(photo => !(/^image\//i.test(photo.type || '') || /\.(?:jpe?g|png|webp|gif|heic|heif)$/i.test(photo.name || '')));
+  if (unsupported) throw new Error(`“${unsupported.name}” fotoğraf dosyası değil.`);
+  for (const input of itemPhotoInputs) {
+    const itemId = input.dataset.checklistPhoto;
+    const stage = inspectionChecklist.querySelector(`[data-checklist-photo-stage="${itemId}"]`)?.value || 'before';
+    for (const photo of Array.from(input.files || [])) await addInspectionAttachment(photo, nonconformitiesByItem.get(itemId), resultsByItem.get(itemId), stage);
+  }
+  inspectionPhotoInput.value = ''; clearPendingInspectionPhotoUrls(); inspectionPhotoSelection.replaceChildren(); inspectionPhotoSelection.hidden = true;
+  inspectionNote.value = ''; renderInspectionDashboard(); showToast(photos.length ? `${photos.length} fotoğraf ve checklist sonucu kaydedildi.` : 'Checklist sonucu kaydedildi.');
 }
 async function updateNonconformityState(record, nextState) {
   if (!isBedaEditor()) return;
   const previousState = record.state; record.state = nextState; record.updatedAt = new Date().toISOString();
   try { await persistNonconformity(record, nextState === 'closed' ? 'closed' : nextState === 'active' ? 'reopened' : 'correction_requested', previousState); renderInspectionDashboard(); showToast('Uygunsuzluk durumu güncellendi.'); }
   catch (error) { record.state = previousState; showToast(error.message || 'Uygunsuzluk güncellenemedi.'); }
+}
+async function archiveSelectedManualInspectionPoint() {
+  if (!isBedaEditor()) { showToast('Nokta silme yetkisi yalnızca BEDA hesabında.'); return; }
+  const point = inspectionPointForTarget();
+  if (!point?.metadata?.manual) return;
+  const resultIds = new Set(inspectionState.results.filter(result => result.pointId === point.id).map(result => result.id));
+  const nonconformityIds = new Set(inspectionState.nonconformities.filter(record => record.pointId === point.id).map(record => record.id));
+  const photoCount = inspectionState.attachments.filter(item => resultIds.has(item.resultId) || nonconformityIds.has(item.nonconformityId)).length;
+  const noteCount = inspectionState.results.filter(result => result.pointId === point.id && result.note).length + inspectionState.nonconformities.filter(record => record.pointId === point.id && record.description).length;
+  const message = `Bu manuel nokta haritadan kaldırılacak. Bağlı ${resultIds.size} denetim sonucu, ${nonconformityIds.size} uygunsuzluk, ${noteCount} not ve ${photoCount} fotoğraf silinmeyecek; arşivde korunacak. Nokta sayfa yenilendiğinde geri gelmez. Devam edilsin mi?`;
+  if (!window.confirm(message)) return;
+  const previousMetadata = { ...(point.metadata || {}) }, previousTarget = selectedInspectionTarget;
+  point.metadata = { ...previousMetadata, deletedAt: new Date().toISOString(), deletedBy: authenticatedProfile?.user_id || 'local-beda', deletionMode: 'archive' };
+  selectedInspectionTarget = null; inspectionPickType = null;
+  try {
+    await persistInspectionPoint(point);
+    await persistLocalInspectionState();
+    renderInspectionDashboard(); showToast('Manuel nokta kaldırıldı; bağlı kayıtlar arşivde korundu.');
+  } catch (error) {
+    point.metadata = previousMetadata; selectedInspectionTarget = previousTarget; renderInspectionDashboard();
+    showToast(error.message || 'Nokta silinemedi; hiçbir değişiklik uygulanmadı.');
+  }
 }
 async function importPackageInspectionSnapshot(snapshot, zip) {
   applyInspectionState({ ...snapshot, localOnly: !backendEnabled || !isBedaEditor() });
@@ -1852,6 +2233,7 @@ async function importPackageInspectionSnapshot(snapshot, zip) {
       for (const point of inspectionState.points) await persistInspectionPoint(point);
       for (const result of inspectionState.results) await persistInspectionResult(result);
       for (const record of inspectionState.nonconformities) await persistNonconformity(record);
+      for (const attachment of inspectionState.attachments) await persistInspectionAttachment(attachment);
     } catch (error) { inspectionState.localOnly = true; await persistLocalInspectionState(); }
   } else await persistLocalInspectionState();
   renderInspectionDashboard();
@@ -1884,6 +2266,11 @@ document.querySelectorAll('[data-inspection-filter]').forEach(button => button.a
 document.getElementById('showOnlyNonconformities').addEventListener('click', () => { inspectionFilter = 'noncompliant'; renderInspectionDashboard(); });
 document.getElementById('addManualPole').addEventListener('click', () => { if (!isBedaEditor()) return showToast('Manuel kontrol noktası ekleme yetkisi yalnızca BEDA hesabında.'); inspectionPickType = 'pole'; setFieldPick(false); showToast('Haritada direk kontrol noktasına tıkla.'); });
 document.getElementById('addManualUnderground').addEventListener('click', () => { if (!isBedaEditor()) return showToast('Manuel kontrol noktası ekleme yetkisi yalnızca BEDA hesabında.'); inspectionPickType = 'underground'; setFieldPick(false); showToast('Haritada yeraltı kontrol noktasına tıkla.'); });
+inspectionPhotoInput.addEventListener('change', renderInspectionPhotoSelection);
+deleteManualInspectionPointButton.addEventListener('click', () => { void archiveSelectedManualInspectionPoint(); });
+inspectionPhotoViewerClose.addEventListener('click', closeInspectionPhotoViewer);
+inspectionPhotoViewer.addEventListener('click', event => { if (event.target === inspectionPhotoViewer) closeInspectionPhotoViewer(); });
+document.addEventListener('keydown', event => { if (event.key === 'Escape' && !inspectionPhotoViewer.hidden) closeInspectionPhotoViewer(); });
 document.getElementById('saveInspection').addEventListener('click', async () => { const button = document.getElementById('saveInspection'); button.disabled = true; try { await saveSelectedInspection(); } catch (error) { showToast(error.message || 'Checklist kaydedilemedi.'); } finally { button.disabled = !isBedaEditor(); } });
 
 applyDemoRole();

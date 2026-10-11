@@ -153,51 +153,107 @@ function makeProjector(info) {
   };
 }
 
-/* Detection is intentionally conservative.  A candidate is emitted only from
-   an INSERT/POINT on a pole layer, or a polyline on an underground-cable layer.
-   The UI always keeps manual control points available for drawings that do not
-   use these conventional names. */
+/* Detection is intentionally conservative. New assets need both a clearly
+   labelled new-installation layer and a physical symbol. Text stays attached
+   to the nearby symbol; old poles and every existing underground route are
+   drawing only and must never become inspection markers. */
 function inspectionCandidates(dxf, project, intervalMeters = 5) {
   const candidates = [], maximum = 2500;
-  const poleLayer = /(?:D[Iİ]REK|\bPOLE\b|\bD[._ -]?AG\b|\bD[._ -]?OG\b)/i;
-  const undergroundLayer = /(?:YERALTI|YER[ _-]?ALTI|KABLO|UG|OG[ _-]?YERALTI)/i;
+  const newPoleLayer = /(?=.*(?:D[Iİ]REK|POLE))(?=.*(?:YEN[Iİ]|NEW))/i;
+  const newBoxLayer = /(?:YEN[Iİ]|NEW).*(?:BOX|KUTU|PANO)|(?:BOX|KUTU|PANO).*(?:YEN[Iİ]|NEW)/i;
+  const newLightingLayer = /(?:YEN[Iİ]|NEW).*(?:AYDIN|ARMAT[ÜU]R|LIGHT)|(?:AYDIN|ARMAT[ÜU]R|LIGHT).*(?:YEN[Iİ]|NEW)/i;
+  const transposition = /TRANS(?:POZ(?:[Iİ]SYON)?|POSITION)/i;
   const stable = value => String(value || '').replace(/[^a-zA-Z0-9_.:-]+/g, '_').slice(0, 120);
   const add = value => { if (value && candidates.length < maximum) candidates.push(value); };
   const entityPoint = entity => entity.position || entity.startPoint || entity.center || entity;
+  const rawDistance = (left, right) => Math.hypot(Number(left.x) - Number(right.x), Number(left.y) - Number(right.y));
+  /* VeCAD exports its pole glyphs as q, 4 or 5 TEXT characters. They are
+     symbols, unlike nearby pole number/type texts. */
+  const poleSymbolText = value => /^(?:q|4|5|[øØ●○])$/i.test(String(value || '').trim());
+  const poleNumberText = value => /^[A-ZÇĞİÖŞÜ]{1,3}\s*[-.]?\s*\d{1,4}$/i.test(String(value || '').trim());
+  const newPoleBlock = value => /(?:YEN[Iİ]|NEW).*(?:D[Iİ]REK|POLE)|(?:D[Iİ]REK|POLE).*(?:YEN[Iİ]|NEW)/i.test(String(value || ''));
+  const assetBlock = (value, type) => type === 'box'
+    ? /(?:BOX|KUTU|PANO)/i.test(String(value || ''))
+    : /(?:AYDIN|ARMAT[ÜU]R|LIGHT)/i.test(String(value || ''));
+  const poleSymbols = [], poleLabels = [], assetSymbols = [], transpositionLabels = [];
   for (let index = 0; index < (dxf.entities || []).length && candidates.length < maximum; index++) {
     const entity = dxf.entities[index] || {}, type = String(entity.type || '').toUpperCase();
     const layer = String(entity.layer || ''), name = String(entity.name || '');
-    if (['INSERT', 'POINT', 'TEXT', 'MTEXT', 'ATTRIB'].includes(type) && poleLayer.test(layer + ' ' + name)) {
-      const raw = entityPoint(entity), point = project(raw);
-      if (!point) continue;
-      const handle = entity.handle || `${layer}:${name}:${Number(raw.x).toFixed(3)}:${Number(raw.y).toFixed(3)}`;
-      add({ elementId: `pole:${stable(handle)}`, elementType: 'pole', sourceLayer: layer, sourceHandle: entity.handle || null,
-        label: String(entity.text || entity.value || name || layer || 'Direk').slice(0, 120), poleType: name || null, networkRole: null, lat: point[0], lon: point[1], metadata: { detected: true, entityType: type, detectionConfidence: type === 'INSERT' || type === 'POINT' ? 'high' : 'layer-label' } });
-      continue;
+    const raw = entityPoint(entity);
+    const text = String(entity.text || entity.value || '').trim();
+    if (raw && Number.isFinite(raw.x) && Number.isFinite(raw.y) && transposition.test(`${layer} ${name} ${text}`)
+        && ((['TEXT', 'MTEXT', 'ATTRIB'].includes(type) && transposition.test(text)) || (type === 'INSERT' && transposition.test(name)))) {
+      transpositionLabels.push({ entity, type, layer, name, text, raw, index });
     }
-    if (!['LWPOLYLINE', 'POLYLINE'].includes(type) || !undergroundLayer.test(layer + ' ' + name)) continue;
-    const vertices = (entity.vertices || []).filter(point => Number.isFinite(point?.x) && Number.isFinite(point?.y));
-    if (vertices.length < 2) continue;
-    const handle = stable(entity.handle || `${layer}:${index}`), interval = Math.max(1, Math.min(100, Number(intervalMeters) || 5));
-    let carried = 0, offset = 0;
-    const addRoutePoint = (raw, distance) => {
-      const point = project(raw); if (!point) return;
-      add({ elementId: `underground:${handle}:${Math.round(distance * 10)}`, elementType: 'underground_route', sourceLayer: layer, sourceHandle: entity.handle || null,
-        label: `${name || layer || 'Yeraltı güzergâhı'} · ${Math.round(distance)} m`, lat: point[0], lon: point[1], metadata: { detected: true, entityType: type, offsetMeters: distance } });
-    };
-    addRoutePoint(vertices[0], 0);
-    for (let vertexIndex = 1; vertexIndex < vertices.length && candidates.length < maximum; vertexIndex++) {
-      const start = vertices[vertexIndex - 1], end = vertices[vertexIndex], dx = end.x - start.x, dy = end.y - start.y;
-      const length = Math.hypot(dx, dy);
-      if (!Number.isFinite(length) || length <= 0 || length > 100000) continue;
-      let next = interval - carried;
-      while (next <= length && candidates.length < maximum) {
-        const fraction = next / length;
-        addRoutePoint({ x: start.x + dx * fraction, y: start.y + dy * fraction }, offset + next);
-        next += interval;
+    if (newPoleLayer.test(layer) && raw && Number.isFinite(raw.x) && Number.isFinite(raw.y)) {
+      const isSymbol = (type === 'INSERT' && newPoleBlock(name)) || type === 'POINT' || (type === 'TEXT' && poleSymbolText(text));
+      if (isSymbol) {
+        poleSymbols.push({ entity, type, layer, name, text, raw, index });
+        continue;
       }
-      carried = (carried + length) % interval; offset += length;
+      if (['TEXT', 'MTEXT', 'ATTRIB'].includes(type) && text) {
+        poleLabels.push({ entity, type, layer, text, raw });
+        continue;
+      }
     }
+    if (raw && Number.isFinite(raw.x) && Number.isFinite(raw.y) && (newBoxLayer.test(layer) || newLightingLayer.test(layer))) {
+      const assetType = newBoxLayer.test(layer) ? 'box' : 'lighting';
+      if ((type === 'INSERT' && assetBlock(name, assetType)) || type === 'POINT') assetSymbols.push({ entity, type, layer, name, text, raw, index, assetType });
+    }
+  }
+  /* Only collapse symbols with effectively identical source coordinates. A
+     proximity merge would incorrectly combine two genuine poles drawn close
+     together. */
+  const uniqueSymbols = [];
+  for (const symbol of poleSymbols) {
+    if (!uniqueSymbols.some(existing => rawDistance(existing.raw, symbol.raw) <= 0.02)) uniqueSymbols.push(symbol);
+  }
+  /* A drawing can contain more than one glyph character next to one pole.
+     Bind each clearly formatted pole number to its nearest glyph, then emit
+     that glyph only once. This prevents q/4/5 components becoming duplicates. */
+  const assignedSymbols = new Set();
+  for (const label of poleLabels.filter(label => poleNumberText(label.text))) {
+    const distances = uniqueSymbols.map(symbol => rawDistance(symbol.raw, label.raw));
+    const nearest = Math.min(...distances);
+    if (!Number.isFinite(nearest) || nearest > 14 || distances.filter(value => Math.abs(value - nearest) <= 0.02).length !== 1) continue;
+    assignedSymbols.add(uniqueSymbols[distances.indexOf(nearest)]);
+  }
+  const candidateSymbols = uniqueSymbols.filter(symbol => assignedSymbols.has(symbol) || symbol.type === 'INSERT' || symbol.type === 'POINT');
+  for (const symbol of candidateSymbols) {
+    const point = project(symbol.raw); if (!point) continue;
+    const labels = poleLabels.filter(label => {
+      const distance = rawDistance(symbol.raw, label.raw);
+      if (distance > 14) return false;
+      const distances = uniqueSymbols.map(other => rawDistance(other.raw, label.raw));
+      const nearest = Math.min(...distances);
+      /* A label is associated only with one unambiguous nearest symbol. */
+      return Math.abs(distance - nearest) <= 0.02 && distances.filter(value => Math.abs(value - nearest) <= 0.02).length === 1;
+    }).sort((a, b) => rawDistance(symbol.raw, a.raw) - rawDistance(symbol.raw, b.raw));
+    const values = labels.map(label => label.text);
+    const poleNumber = values.find(value => poleNumberText(value)) || null;
+    const poleType = values.find(value => /(?:G[- ]?\d|K\d|D[Iİ]REK|\bM\b|\bE\b)/i.test(value) && value !== poleNumber) || null;
+    const handle = symbol.entity.handle || `${symbol.layer}:${symbol.name}:${Number(symbol.raw.x).toFixed(3)}:${Number(symbol.raw.y).toFixed(3)}`;
+    const legacyElementIds = labels.filter(label => label.entity.handle).map(label => `pole:${stable(label.entity.handle)}`);
+    add({ elementId: `pole:${stable(handle)}`, elementType: 'pole', sourceLayer: symbol.layer, sourceHandle: symbol.entity.handle || null,
+      label: [poleNumber, poleType].filter(Boolean).join(' · ') || 'Yeni direk', poleType, networkRole: values.find(value => /^(?:E|M|\d+)$/i.test(value)) || null,
+      lat: point[0], lon: point[1], metadata: { detected: true, candidateVersion: 2, newPole: true, entityType: symbol.type, symbol: symbol.text || symbol.name || 'POINT', detectionConfidence: 'high', poleNumber, labels: labels.map(label => ({ text: label.text, sourceHandle: label.entity.handle || null })), legacyElementIds } });
+  }
+  const uniqueAssets = [];
+  for (const symbol of assetSymbols) if (!uniqueAssets.some(existing => existing.assetType === symbol.assetType && rawDistance(existing.raw, symbol.raw) <= 0.02)) uniqueAssets.push(symbol);
+  for (const symbol of uniqueAssets) {
+    const point = project(symbol.raw); if (!point) continue;
+    const handle = symbol.entity.handle || `${symbol.layer}:${symbol.name}:${Number(symbol.raw.x).toFixed(3)}:${Number(symbol.raw.y).toFixed(3)}`;
+    const label = symbol.assetType === 'box' ? 'Yeni BOX' : 'Yeni aydınlatma noktası';
+    add({ elementId: `${symbol.assetType}:${stable(handle)}`, elementType: symbol.assetType, sourceLayer: symbol.layer, sourceHandle: symbol.entity.handle || null,
+      label, lat: point[0], lon: point[1], metadata: { detected: true, candidateVersion: 3, newAsset: true, entityType: symbol.type, symbol: symbol.text || symbol.name || 'POINT', detectionConfidence: 'high' } });
+  }
+  const uniqueTranspositions = [];
+  for (const item of transpositionLabels) if (!uniqueTranspositions.some(existing => rawDistance(existing.raw, item.raw) <= 0.02)) uniqueTranspositions.push(item);
+  for (const item of uniqueTranspositions) {
+    const point = project(item.raw); if (!point) continue;
+    const handle = item.entity.handle || `${item.layer}:${item.name}:${Number(item.raw.x).toFixed(3)}:${Number(item.raw.y).toFixed(3)}`;
+    add({ elementId: `transposition:${stable(handle)}`, elementType: 'transposition', sourceLayer: item.layer, sourceHandle: item.entity.handle || null,
+      label: item.text || item.name || 'OG transpozisyon noktası', lat: point[0], lon: point[1], metadata: { detected: true, candidateVersion: 3, transposition: true, entityType: item.type, description: item.text || item.name || null, detectionConfidence: 'high' } });
   }
   return candidates;
 }
