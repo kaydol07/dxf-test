@@ -9,7 +9,7 @@ const bases={
 bases.satellite.addTo(map);
 let labelLayer=L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager_only_labels/{z}/{x}/{y}{r}.png',{attribution:'',maxZoom:20,pane:'overlayPane'}).addTo(map);
 const panels=['projectPanel','inspectionPanel','locationPanel','addressPanel','parcelPanel'];
-function keepMapVisible(){requestAnimationFrame(()=>{const mapElement=document.getElementById('map');mapElement.style.opacity='1';mapElement.style.filter='none';mapElement.style.visibility='visible';for(const paneName of ['mapPane','tilePane','overlayPane','markerPane','cadCanvasPane']){const pane=map.getPane(paneName);if(!pane)continue;pane.style.opacity='1';pane.style.filter='none';pane.style.visibility='visible';}document.querySelectorAll('.cad-canvas-layer').forEach(canvas=>{canvas.style.opacity='1';canvas.style.filter='none';canvas.style.visibility='visible';});if(canViewInspectionData()){if(!map.hasLayer(inspectionMarkerLayer))inspectionMarkerLayer.addTo(map)}else{inspectionMarkerLayer.clearLayers();if(map.hasLayer(inspectionMarkerLayer))map.removeLayer(inspectionMarkerLayer)}});}
+function keepMapVisible(){if(canViewInspectionData()){if(!map.hasLayer(inspectionMarkerLayer))inspectionMarkerLayer.addTo(map)}else{inspectionMarkerLayer.clearLayers();if(map.hasLayer(inspectionMarkerLayer))map.removeLayer(inspectionMarkerLayer)}}
 function openPanel(id){panels.forEach(p=>document.getElementById(p).hidden=p!==id||!document.getElementById(p).hidden);document.querySelectorAll('.toolbar [data-panel]').forEach(b=>b.classList.toggle('active',b.dataset.panel===id&&!document.getElementById(id).hidden));keepMapVisible();}
 document.querySelectorAll('.toolbar [data-panel]').forEach(button=>button.addEventListener('click',()=>{const id=button.dataset.panel;const wasClosed=document.getElementById(id).hidden;if(fieldPickActive)setFieldPick(false);openPanel(id);if(id==='locationPanel'&&wasClosed)startLocationTracking();if(id==='parcelPanel')setParcelPick(wasClosed)}));
 document.querySelectorAll('.close').forEach(button=>button.addEventListener('click',()=>{button.closest('.drawer').hidden=true;document.querySelectorAll('.toolbar button').forEach(b=>b.classList.remove('active'));keepMapVisible();}));
@@ -290,10 +290,11 @@ const CadCanvasLayer = L.Layer.extend({
       const points = command.points || [];
       if (points.length < 2) continue;
       ctx.beginPath();
-      let started = false;
+      let started = false, minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
       for (const coordinate of points) {
         if (!coordinate) continue;
         const p = this._canvasPoint(coordinate);
+        minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x); minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y);
         if (!started) { ctx.moveTo(p.x, p.y); started = true; } else ctx.lineTo(p.x, p.y);
       }
       if (!started) continue;
@@ -302,10 +303,11 @@ const CadCanvasLayer = L.Layer.extend({
       ctx.strokeStyle = command.color || '#ffffff';
       ctx.fillStyle = command.color || '#ffffff';
       ctx.setLineDash(command.dash || []);
-      // Large CAD solids can overlap across layers and obscure the basemap at
-      // project scale. Preserve fills for close inspection, but only draw them
-      // when the user has zoomed in far enough to see the actual CAD detail.
-      if (command.filled && zoom >= 17) { ctx.save(); ctx.globalAlpha = Number.isFinite(command.fillOpacity) ? command.fillOpacity : .35; ctx.fill(); ctx.restore(); }
+      // Keep the satellite map usable: DXF HATCH objects and large SOLID
+      // polygons can cover the whole canvas as an opaque black surface. Only
+      // fill small SOLID glyphs; the remaining CAD geometry is still stroked.
+      const smallSolid = command.isSolid && points.length <= 4 && maxX - minX <= 120 && maxY - minY <= 120;
+      if (command.filled && smallSolid && zoom >= 17) { ctx.save(); ctx.globalAlpha = Math.min(.25, Number.isFinite(command.fillOpacity) ? command.fillOpacity : .2); ctx.fill(); ctx.restore(); }
       ctx.stroke();
       ctx.setLineDash([]);
     }
@@ -380,7 +382,7 @@ async function parseDxf(file, options = {}) {
   };
   try {
     const buffer = await file.arrayBuffer();
-    worker = new Worker(new URL('./dxf-worker.js?v=9', document.baseURI));
+    worker = new Worker(new URL('./dxf-worker.js?v=10', document.baseURI));
     const result = await new Promise((resolve, reject) => {
       const cancel = () => { if (settled) return; settled = true; reject(new Error('DXF yüklemesi iptal edildi.')); };
       activeDxfJobs.set(worker, cancel);
@@ -1730,6 +1732,8 @@ function poleControlLabel(target) {
   const metadata = target.metadata || {};
   const numberPattern = /^[A-ZÇĞİÖŞÜ]{1,3}[-.]?\d{1,4}(?:\([A-ZÇĞİÖŞÜ0-9/-]{1,8}\))?$/i;
   const cleanType = value => String(value || '').trim().replace(/^G\s*[-–—]\s*/i, '').replace(/["'“”·]/g, '').replace(/\s+/g, '').toLocaleUpperCase('tr-TR');
+  const typePattern = /^(?:(?:[A-ZÇĞİÖŞÜ]{1,3}\d{0,4})|(?:\d{1,3}[A-ZÇĞİÖŞÜ]{1,3}))(?:\([A-ZÇĞİÖŞÜ0-9/-]{1,8}\))?$/i;
+  const labelTexts = Array.isArray(metadata.labels) ? metadata.labels.map(item => typeof item === 'string' ? item : item?.text).filter(Boolean) : [];
   let number = String(metadata.poleNumber || '').trim().replace(/\s+/g, '').toLocaleUpperCase('tr-TR');
   let type = cleanType(target.poleType);
   const source = String(metadata.displayLabel || target.label || '').trim();
@@ -1737,6 +1741,8 @@ function poleControlLabel(target) {
   if (!number && numberPattern.test(parts[0] || '')) number = parts.shift().replace(/\s+/g, '').toLocaleUpperCase('tr-TR');
   if (!type && parts.length) type = cleanType(parts.join(' '));
   if (!number && numberPattern.test(source.replace(/\s+/g, ''))) number = source.replace(/\s+/g, '').toLocaleUpperCase('tr-TR');
+  if (!number) number = labelTexts.map(value => String(value).replace(/\s+/g, '').toLocaleUpperCase('tr-TR')).find(value => numberPattern.test(value)) || '';
+  if (!type) type = labelTexts.map(cleanType).find(value => value && value !== number && typePattern.test(value)) || '';
   if (number && type && number === type) type = '';
   return number ? number + (type ? ` ${type}` : '') : (type && numberPattern.test(type) ? type : '');
 }

@@ -171,7 +171,7 @@ function inspectionCandidates(dxf, project, intervalMeters = 5) {
      symbols, unlike nearby pole number/type texts. */
   const poleSymbolText = value => /^(?:q|4|5|[øØ●○])$/i.test(String(value || '').trim());
   const poleNumberText = value => /^[A-ZÇĞİÖŞÜ]{1,3}\s*[-.]?\s*\d{1,4}(?:\s*\([A-ZÇĞİÖŞÜ0-9/-]{1,8}\))?$/i.test(String(value || '').trim());
-  const poleTypeText = value => /^(?:G\s*[-–—]\s*)?[A-ZÇĞİÖŞÜ]{1,3}\s*\d{0,4}(?:\s*\([A-ZÇĞİÖŞÜ0-9/-]{1,8}\))?$/i.test(String(value || '').trim());
+  const poleTypeText = value => /^(?:G\s*[-–—]\s*)?(?:(?:[A-ZÇĞİÖŞÜ]{1,3}\s*\d{0,4})|(?:\d{1,3}\s*[A-ZÇĞİÖŞÜ]{1,3}))(?:\s*\([A-ZÇĞİÖŞÜ0-9/-]{1,8}\))?$/i.test(String(value || '').trim());
   const cleanPoleType = value => String(value || '').trim().replace(/^G\s*[-–—]\s*/i, '').replace(/["'“”·]/g, '').replace(/\s+/g, '');
   const newPoleBlock = value => /(?:YEN[Iİ]|NEW).*(?:D[Iİ]REK|POLE)|(?:D[Iİ]REK|POLE).*(?:YEN[Iİ]|NEW)/i.test(String(value || ''));
   const assetBlock = (value, type) => type === 'box'
@@ -232,7 +232,7 @@ function inspectionCandidates(dxf, project, intervalMeters = 5) {
       return Math.abs(distance - nearest) <= 0.02 && distances.filter(value => Math.abs(value - nearest) <= 0.02).length === 1;
     }).sort((a, b) => rawDistance(symbol.raw, a.raw) - rawDistance(symbol.raw, b.raw));
     const values = labels.map(label => label.text);
-    const rawPoleType = values.find(value => poleTypeText(value) && (/^G\s*[-–—]/i.test(value) || /\(/.test(value) || /^K\s*\d+/i.test(value))) || null;
+    const rawPoleType = values.find(value => poleTypeText(value) && (/^G\s*[-–—]/i.test(value) || /\(/.test(value) || /^K\s*\d+/i.test(value) || /^\d+\s*[A-ZÇĞİÖŞÜ]/i.test(value) || /^(?:E|M)$/i.test(String(value).trim()))) || null;
     const rawPoleNumber = values.find(value => poleNumberText(value) && value !== rawPoleType) || (!rawPoleType ? values.find(value => poleNumberText(value)) : null);
     const poleNumber = rawPoleNumber?.replace(/\s+/g, '').toLocaleUpperCase('tr-TR') || null;
     const poleType = cleanPoleType(rawPoleType);
@@ -404,7 +404,7 @@ function geometryCommand(entity, project, style) {
   }
   if (dot) return { type: 'point', point: dot, radius: type === 'INSERT' ? 4 : 2, color: style.color };
   if (!path || path.length < 2) return null;
-  return { type: 'path', points: path, closed, filled, isHatch: type === 'HATCH', fillOpacity, color: style.color, weight: style.weight, dash: style.dash };
+  return { type: 'path', points: path, closed, filled, isHatch: type === 'HATCH', isSolid: ['SOLID', 'TRACE', '3DFACE'].includes(type), fillOpacity, color: style.color, weight: style.weight, dash: style.dash };
 }
 
 function hatchColorForLegacy(entity, layer) {
