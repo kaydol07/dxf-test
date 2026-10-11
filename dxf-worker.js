@@ -170,7 +170,9 @@ function inspectionCandidates(dxf, project, intervalMeters = 5) {
   /* VeCAD exports its pole glyphs as q, 4 or 5 TEXT characters. They are
      symbols, unlike nearby pole number/type texts. */
   const poleSymbolText = value => /^(?:q|4|5|[øØ●○])$/i.test(String(value || '').trim());
-  const poleNumberText = value => /^[A-ZÇĞİÖŞÜ]{1,3}\s*[-.]?\s*\d{1,4}$/i.test(String(value || '').trim());
+  const poleNumberText = value => /^[A-ZÇĞİÖŞÜ]{1,3}\s*[-.]?\s*\d{1,4}(?:\s*\([A-ZÇĞİÖŞÜ0-9/-]{1,8}\))?$/i.test(String(value || '').trim());
+  const poleTypeText = value => /^(?:G\s*[-–—]\s*)?[A-ZÇĞİÖŞÜ]{1,3}\s*\d{0,4}(?:\s*\([A-ZÇĞİÖŞÜ0-9/-]{1,8}\))?$/i.test(String(value || '').trim());
+  const cleanPoleType = value => String(value || '').trim().replace(/^G\s*[-–—]\s*/i, '').replace(/\s+/g, '');
   const newPoleBlock = value => /(?:YEN[Iİ]|NEW).*(?:D[Iİ]REK|POLE)|(?:D[Iİ]REK|POLE).*(?:YEN[Iİ]|NEW)/i.test(String(value || ''));
   const assetBlock = (value, type) => type === 'box'
     ? /(?:BOX|KUTU|PANO)/i.test(String(value || ''))
@@ -230,13 +232,16 @@ function inspectionCandidates(dxf, project, intervalMeters = 5) {
       return Math.abs(distance - nearest) <= 0.02 && distances.filter(value => Math.abs(value - nearest) <= 0.02).length === 1;
     }).sort((a, b) => rawDistance(symbol.raw, a.raw) - rawDistance(symbol.raw, b.raw));
     const values = labels.map(label => label.text);
-    const poleNumber = values.find(value => poleNumberText(value)) || null;
-    const poleType = values.find(value => /(?:G[- ]?\d|K\d|D[Iİ]REK|\bM\b|\bE\b)/i.test(value) && value !== poleNumber) || null;
+    const rawPoleType = values.find(value => poleTypeText(value) && (/^G\s*[-–—]/i.test(value) || /\(/.test(value) || /^K\s*\d+/i.test(value))) || null;
+    const rawPoleNumber = values.find(value => poleNumberText(value) && value !== rawPoleType) || (!rawPoleType ? values.find(value => poleNumberText(value)) : null);
+    const poleNumber = rawPoleNumber?.replace(/\s+/g, '').toLocaleUpperCase('tr-TR') || null;
+    const poleType = cleanPoleType(rawPoleType);
+    const displayLabel = poleNumber ? poleNumber + (poleType ? ` ${poleType}` : '') : (poleType || null);
     const handle = symbol.entity.handle || `${symbol.layer}:${symbol.name}:${Number(symbol.raw.x).toFixed(3)}:${Number(symbol.raw.y).toFixed(3)}`;
     const legacyElementIds = labels.filter(label => label.entity.handle).map(label => `pole:${stable(label.entity.handle)}`);
     add({ elementId: `pole:${stable(handle)}`, elementType: 'pole', sourceLayer: symbol.layer, sourceHandle: symbol.entity.handle || null,
-      label: [poleNumber, poleType].filter(Boolean).join(' · ') || 'Yeni direk', poleType, networkRole: values.find(value => /^(?:E|M|\d+)$/i.test(value)) || null,
-      lat: point[0], lon: point[1], metadata: { detected: true, candidateVersion: 2, newPole: true, entityType: symbol.type, symbol: symbol.text || symbol.name || 'POINT', detectionConfidence: 'high', poleNumber, labels: labels.map(label => ({ text: label.text, sourceHandle: label.entity.handle || null })), legacyElementIds } });
+      label: displayLabel, poleType: poleType || null, networkRole: values.find(value => /^(?:E|M|\d+)$/i.test(value)) || null,
+      lat: point[0], lon: point[1], metadata: { detected: true, candidateVersion: 2, newPole: true, entityType: symbol.type, symbol: symbol.text || symbol.name || 'POINT', detectionConfidence: 'high', poleNumber, displayLabel, labels: labels.map(label => ({ text: label.text, sourceHandle: label.entity.handle || null })), legacyElementIds } });
   }
   const uniqueAssets = [];
   for (const symbol of assetSymbols) if (!uniqueAssets.some(existing => existing.assetType === symbol.assetType && rawDistance(existing.raw, symbol.raw) <= 0.02)) uniqueAssets.push(symbol);

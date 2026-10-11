@@ -380,7 +380,7 @@ async function parseDxf(file, options = {}) {
   };
   try {
     const buffer = await file.arrayBuffer();
-    worker = new Worker(new URL('./dxf-worker.js?v=7', document.baseURI));
+    worker = new Worker(new URL('./dxf-worker.js?v=8', document.baseURI));
     const result = await new Promise((resolve, reject) => {
       const cancel = () => { if (settled) return; settled = true; reject(new Error('DXF yüklemesi iptal edildi.')); };
       activeDxfJobs.set(worker, cancel);
@@ -1725,6 +1725,21 @@ function markerIcon(target, status) {
   const kind = pointType === 'underground' ? 'underground' : pointType === 'box' ? 'box' : pointType === 'lighting' ? 'lighting' : pointType === 'transposition' ? 'transposition' : target.elementType === 'manual' ? 'manual' : 'pole';
   return L.divIcon({ className: '', iconSize: [18, 18], iconAnchor: [9, 9], html: `<span class="inspection-marker ${kind} ${status}"></span>` });
 }
+function poleControlLabel(target) {
+  if (targetPointType(target) !== 'pole' || target?.metadata?.manual) return '';
+  const metadata = target.metadata || {};
+  const numberPattern = /^[A-ZÇĞİÖŞÜ]{1,3}[-.]?\d{1,4}(?:\([A-ZÇĞİÖŞÜ0-9/-]{1,8}\))?$/i;
+  const cleanType = value => String(value || '').trim().replace(/^G\s*[-–—]\s*/i, '').replace(/\s+/g, '').toLocaleUpperCase('tr-TR');
+  let number = String(metadata.poleNumber || '').trim().replace(/\s+/g, '').toLocaleUpperCase('tr-TR');
+  let type = cleanType(target.poleType);
+  const source = String(metadata.displayLabel || target.label || '').trim();
+  const parts = source.split(/\s*·\s*/).map(part => part.trim()).filter(Boolean);
+  if (!number && numberPattern.test(parts[0] || '')) number = parts.shift().replace(/\s+/g, '').toLocaleUpperCase('tr-TR');
+  if (!type && parts.length) type = cleanType(parts.join(' '));
+  if (!number && numberPattern.test(source.replace(/\s+/g, ''))) number = source.replace(/\s+/g, '').toLocaleUpperCase('tr-TR');
+  if (number && type && number === type) type = '';
+  return number ? number + (type ? ` ${type}` : '') : (type && numberPattern.test(type) ? type : '');
+}
 function renderInspectionMarkers() {
   inspectionMarkerLayer.clearLayers();
   if (!canViewInspectionData()) { if (map.hasLayer(inspectionMarkerLayer)) map.removeLayer(inspectionMarkerLayer); return; }
@@ -1736,7 +1751,9 @@ function renderInspectionMarkers() {
     if (!Number.isFinite(target.lat) || !Number.isFinite(target.lon)) continue;
     const status = inspectionStatus(target);
     if (!statusMatchesFilter(status)) continue;
-    const marker = L.marker([target.lat, target.lon], { pane: 'fieldMarkerPane', icon: markerIcon(target, status), keyboard: true, title: target.label || 'Saha kontrol noktası' });
+    const label = poleControlLabel(target);
+    const marker = L.marker([target.lat, target.lon], { pane: 'fieldMarkerPane', icon: markerIcon(target, status), keyboard: true, title: label || target.label || 'Saha kontrol noktası' });
+    if (label) marker.bindTooltip(label, { permanent: true, direction: 'right', offset: [10, 0], className: 'inspection-marker-label', opacity: 1 });
     marker.on('click', () => selectInspectionTarget(target));
     marker.addTo(inspectionMarkerLayer);
   }
