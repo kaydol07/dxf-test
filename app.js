@@ -380,7 +380,7 @@ async function parseDxf(file, options = {}) {
   };
   try {
     const buffer = await file.arrayBuffer();
-    worker = new Worker(new URL('./dxf-worker.js?v=8', document.baseURI));
+    worker = new Worker(new URL('./dxf-worker.js?v=9', document.baseURI));
     const result = await new Promise((resolve, reject) => {
       const cancel = () => { if (settled) return; settled = true; reject(new Error('DXF yüklemesi iptal edildi.')); };
       activeDxfJobs.set(worker, cancel);
@@ -1729,7 +1729,7 @@ function poleControlLabel(target) {
   if (targetPointType(target) !== 'pole' || target?.metadata?.manual) return '';
   const metadata = target.metadata || {};
   const numberPattern = /^[A-ZÇĞİÖŞÜ]{1,3}[-.]?\d{1,4}(?:\([A-ZÇĞİÖŞÜ0-9/-]{1,8}\))?$/i;
-  const cleanType = value => String(value || '').trim().replace(/^G\s*[-–—]\s*/i, '').replace(/\s+/g, '').toLocaleUpperCase('tr-TR');
+  const cleanType = value => String(value || '').trim().replace(/^G\s*[-–—]\s*/i, '').replace(/["'“”·]/g, '').replace(/\s+/g, '').toLocaleUpperCase('tr-TR');
   let number = String(metadata.poleNumber || '').trim().replace(/\s+/g, '').toLocaleUpperCase('tr-TR');
   let type = cleanType(target.poleType);
   const source = String(metadata.displayLabel || target.label || '').trim();

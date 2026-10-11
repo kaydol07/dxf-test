@@ -172,7 +172,7 @@ function inspectionCandidates(dxf, project, intervalMeters = 5) {
   const poleSymbolText = value => /^(?:q|4|5|[øØ●○])$/i.test(String(value || '').trim());
   const poleNumberText = value => /^[A-ZÇĞİÖŞÜ]{1,3}\s*[-.]?\s*\d{1,4}(?:\s*\([A-ZÇĞİÖŞÜ0-9/-]{1,8}\))?$/i.test(String(value || '').trim());
   const poleTypeText = value => /^(?:G\s*[-–—]\s*)?[A-ZÇĞİÖŞÜ]{1,3}\s*\d{0,4}(?:\s*\([A-ZÇĞİÖŞÜ0-9/-]{1,8}\))?$/i.test(String(value || '').trim());
-  const cleanPoleType = value => String(value || '').trim().replace(/^G\s*[-–—]\s*/i, '').replace(/\s+/g, '');
+  const cleanPoleType = value => String(value || '').trim().replace(/^G\s*[-–—]\s*/i, '').replace(/["'“”·]/g, '').replace(/\s+/g, '');
   const newPoleBlock = value => /(?:YEN[Iİ]|NEW).*(?:D[Iİ]REK|POLE)|(?:D[Iİ]REK|POLE).*(?:YEN[Iİ]|NEW)/i.test(String(value || ''));
   const assetBlock = (value, type) => type === 'box'
     ? /(?:BOX|KUTU|PANO)/i.test(String(value || ''))
