@@ -349,7 +349,7 @@ function geometryCommand(entity, project, style) {
   const type = String(entity.type || '').toUpperCase();
   const point = project;
   const points = values => (values || []).map(point).filter(Boolean);
-  let path = null, closed = false, filled = false, dot = null;
+  let path = null, closed = false, filled = false, fillOpacity = 0, dot = null;
   if (type === 'LINE') path = points(entity.vertices?.length ? entity.vertices : [entity.startPoint, entity.endPoint]);
   else if (['LWPOLYLINE', 'POLYLINE', 'HATCH'].includes(type)) {
     const raw = entity.vertices || [], vertices = [];
@@ -368,7 +368,7 @@ function geometryCommand(entity, project, style) {
         if (projected) vertices.push(projected);
       }
     }
-    path = vertices; closed = Boolean(entity.shape || entity.closed); filled = type === 'HATCH' || closed && ['SOLID', 'TRACE'].includes(type);
+    path = vertices; closed = Boolean(entity.shape || entity.closed); filled = type === 'HATCH'; fillOpacity = filled ? .12 : 0;
   } else if (type === 'CIRCLE' && entity.center && entity.radius) {
     path = []; for (let index = 0; index <= 48; index++) { const angle = index * Math.PI / 24; path.push(point({ x: entity.center.x + entity.radius * Math.cos(angle), y: entity.center.y + entity.radius * Math.sin(angle) })); }
     closed = true;
@@ -379,7 +379,7 @@ function geometryCommand(entity, project, style) {
   } else if (['SOLID', 'TRACE', '3DFACE'].includes(type)) {
     path = points(entity.points || entity.vertices);
     if (path.length > 4 && path[2][0] === path[3][0] && path[2][1] === path[3][1]) path.pop();
-    closed = true; filled = path.length >= 3;
+    closed = true; filled = path.length >= 3; fillOpacity = filled ? .45 : 0;
   } else if (type === 'ELLIPSE' && entity.center && entity.majorAxisEndPoint) {
     const center = entity.center, major = entity.majorAxisEndPoint, radius = Math.hypot(major.x, major.y), ratio = entity.axisRatio || 1;
     let start = entity.startAngle || 0, end = entity.endAngle || 2 * Math.PI; if (end < start) end += 2 * Math.PI;
@@ -399,7 +399,7 @@ function geometryCommand(entity, project, style) {
   }
   if (dot) return { type: 'point', point: dot, radius: type === 'INSERT' ? 4 : 2, color: style.color };
   if (!path || path.length < 2) return null;
-  return { type: 'path', points: path, closed, filled, color: style.color, weight: style.weight, dash: style.dash };
+  return { type: 'path', points: path, closed, filled, fillOpacity, color: style.color, weight: style.weight, dash: style.dash };
 }
 
 function hatchColorForLegacy(entity, layer) {

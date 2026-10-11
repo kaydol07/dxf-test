@@ -9,7 +9,7 @@ const bases={
 bases.satellite.addTo(map);
 let labelLayer=L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager_only_labels/{z}/{x}/{y}{r}.png',{attribution:'',maxZoom:20,pane:'overlayPane'}).addTo(map);
 const panels=['projectPanel','inspectionPanel','locationPanel','addressPanel','parcelPanel'];
-function keepMapVisible(){requestAnimationFrame(()=>{document.getElementById('map').style.opacity='1';map.invalidateSize({pan:false});cadCanvasLayers.forEach(item=>item.layer?._scheduleDraw?.());if(!map.hasLayer(inspectionMarkerLayer))inspectionMarkerLayer.addTo(map);});}
+function keepMapVisible(){requestAnimationFrame(()=>{const mapElement=document.getElementById('map');mapElement.style.opacity='1';mapElement.style.filter='none';const cadPane=map.getPane('cadCanvasPane');if(cadPane){cadPane.style.opacity='1';cadPane.style.filter='none';}map.invalidateSize({pan:false});cadCanvasLayers.forEach(item=>item.layer?._scheduleDraw?.());if(!map.hasLayer(inspectionMarkerLayer))inspectionMarkerLayer.addTo(map);});}
 function openPanel(id){panels.forEach(p=>document.getElementById(p).hidden=p!==id||!document.getElementById(p).hidden);document.querySelectorAll('.toolbar [data-panel]').forEach(b=>b.classList.toggle('active',b.dataset.panel===id&&!document.getElementById(id).hidden));keepMapVisible();}
 document.querySelectorAll('.toolbar [data-panel]').forEach(button=>button.addEventListener('click',()=>{const id=button.dataset.panel;const wasClosed=document.getElementById(id).hidden;if(fieldPickActive)setFieldPick(false);openPanel(id);if(id==='locationPanel'&&wasClosed)startLocationTracking();if(id==='parcelPanel')setParcelPick(wasClosed)}));
 document.querySelectorAll('.close').forEach(button=>button.addEventListener('click',()=>{button.closest('.drawer').hidden=true;document.querySelectorAll('.toolbar button').forEach(b=>b.classList.remove('active'));keepMapVisible();}));
@@ -302,7 +302,7 @@ const CadCanvasLayer = L.Layer.extend({
       ctx.strokeStyle = command.color || '#ffffff';
       ctx.fillStyle = command.color || '#ffffff';
       ctx.setLineDash(command.dash || []);
-      if (command.filled) { ctx.globalAlpha = .72; ctx.fill(); ctx.globalAlpha = 1; }
+      if (command.filled) { ctx.save(); ctx.globalAlpha = Number.isFinite(command.fillOpacity) ? command.fillOpacity : .35; ctx.fill(); ctx.restore(); }
       ctx.stroke();
       ctx.setLineDash([]);
     }
@@ -377,7 +377,7 @@ async function parseDxf(file, options = {}) {
   };
   try {
     const buffer = await file.arrayBuffer();
-    worker = new Worker(new URL('./dxf-worker.js?v=6', document.baseURI));
+    worker = new Worker(new URL('./dxf-worker.js?v=7', document.baseURI));
     const result = await new Promise((resolve, reject) => {
       const cancel = () => { if (settled) return; settled = true; reject(new Error('DXF yüklemesi iptal edildi.')); };
       activeDxfJobs.set(worker, cancel);
@@ -437,7 +437,7 @@ async function parseDxf(file, options = {}) {
     for (const entry of fileLayers.values()) map.removeLayer(entry.layer);
     if (!options.keepFile) cadDxfFiles.delete(key);
     throw error;
-  } finally { cleanup(); }
+  } finally { cleanup(); keepMapVisible(); }
 }
 
 /* Field photos and notes stay in this browser until the user exports a project bundle. */
