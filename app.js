@@ -9,7 +9,7 @@ const bases={
 bases.satellite.addTo(map);
 let labelLayer=L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager_only_labels/{z}/{x}/{y}{r}.png',{attribution:'',maxZoom:20,pane:'overlayPane'}).addTo(map);
 const panels=['projectPanel','inspectionPanel','locationPanel','addressPanel','parcelPanel'];
-function keepMapVisible(){requestAnimationFrame(()=>{const mapElement=document.getElementById('map');mapElement.style.opacity='1';mapElement.style.filter='none';const cadPane=map.getPane('cadCanvasPane');if(cadPane){cadPane.style.opacity='1';cadPane.style.filter='none';}map.invalidateSize({pan:false});cadCanvasLayers.forEach(item=>item.layer?._scheduleDraw?.());if(!map.hasLayer(inspectionMarkerLayer))inspectionMarkerLayer.addTo(map);});}
+function keepMapVisible(){requestAnimationFrame(()=>{const mapElement=document.getElementById('map');mapElement.style.opacity='1';mapElement.style.filter='none';const cadPane=map.getPane('cadCanvasPane');if(cadPane){cadPane.style.opacity='1';cadPane.style.filter='none';}map.invalidateSize({pan:false});cadCanvasLayers.forEach(item=>item.layer?._scheduleDraw?.());if(canViewInspectionData()){if(!map.hasLayer(inspectionMarkerLayer))inspectionMarkerLayer.addTo(map)}else{inspectionMarkerLayer.clearLayers();if(map.hasLayer(inspectionMarkerLayer))map.removeLayer(inspectionMarkerLayer)}});}
 function openPanel(id){panels.forEach(p=>document.getElementById(p).hidden=p!==id||!document.getElementById(p).hidden);document.querySelectorAll('.toolbar [data-panel]').forEach(b=>b.classList.toggle('active',b.dataset.panel===id&&!document.getElementById(id).hidden));keepMapVisible();}
 document.querySelectorAll('.toolbar [data-panel]').forEach(button=>button.addEventListener('click',()=>{const id=button.dataset.panel;const wasClosed=document.getElementById(id).hidden;if(fieldPickActive)setFieldPick(false);openPanel(id);if(id==='locationPanel'&&wasClosed)startLocationTracking();if(id==='parcelPanel')setParcelPick(wasClosed)}));
 document.querySelectorAll('.close').forEach(button=>button.addEventListener('click',()=>{button.closest('.drawer').hidden=true;document.querySelectorAll('.toolbar button').forEach(b=>b.classList.remove('active'));keepMapVisible();}));
@@ -478,7 +478,7 @@ let generatedProjectBundleUrl = null, generatedProjectBundleBlob = null;
 const FIELD_CONTRACTORS = ['ERKSİS', 'ASTAN', 'ASMİN', 'ERBU', 'AZRAM'];
 function normalizeContractorCode(value) { return value === 'ERSKSİS' ? 'ERKSİS' : value; }
 const INSPECTION_CONFIG = window.DXF_INSPECTION_CONFIG || { version: 1, settings: { inspectionIntervalMeters: 5, progressEnabled: true }, checklists: {}, theme: {} };
-const inspectionMarkerLayer = L.layerGroup().addTo(map);
+const inspectionMarkerLayer = L.layerGroup();
 const inspectionObjectUrls = new Set();
 let inspectionPickType = null;
 let inspectionFilter = 'all';
@@ -504,6 +504,7 @@ let authenticatedProfile = null, authenticatedSession = null;
 function activeRole() { return backendConfigured ? authenticatedProfile?.role || '' : demoRole; }
 function isBedaEditor() { return activeRole() === 'beda'; }
 function canOpenProjectFiles() { return backendConfigured ? Boolean(authenticatedProfile) : Boolean(activeRole()); }
+function canViewInspectionData() { return Boolean(authenticatedProfile); }
 function canManageProjectFiles() { return isBedaEditor(); }
 function projectContractorStorageKey(projectId = activeProjectId) { return `dxf-project-contractor:${projectId}`; }
 function projectHasYandexContractor() {
@@ -604,6 +605,7 @@ async function applyAuthenticationSession(session) {
     unloadDisplayedProject();
     setActiveProject('Erişilebilir proje yok', 'no-authorized-projects');
   }
+  await refreshInspectionData();
   await refreshFieldRecords();
 }
 async function signOutAuthenticatedUser() {
@@ -1722,6 +1724,8 @@ function markerIcon(target, status) {
 }
 function renderInspectionMarkers() {
   inspectionMarkerLayer.clearLayers();
+  if (!canViewInspectionData()) { if (map.hasLayer(inspectionMarkerLayer)) map.removeLayer(inspectionMarkerLayer); return; }
+  if (!map.hasLayer(inspectionMarkerLayer)) inspectionMarkerLayer.addTo(map);
   const targets = [];
   for (const element of visibleInspectionElements()) targets.push({ ...element, pointType: targetPointType(element) });
   for (const point of inspectionState.points.filter(point => !point.elementId && !inspectionPointIsDeleted(point))) targets.push({ ...point, pointId: point.id, elementType: 'manual' });
@@ -1945,6 +1949,15 @@ function renderInspectionSelection() {
   renderInspectionHistory();
 }
 function renderInspectionDashboard() {
+  if (!canViewInspectionData()) {
+    inspectionMarkerLayer.clearLayers(); if (map.hasLayer(inspectionMarkerLayer)) map.removeLayer(inspectionMarkerLayer);
+    selectedInspectionTarget = null; inspectionEditor.hidden = true; deleteManualInspectionPointButton.hidden = true;
+    inspectionSummary.replaceChildren(); inspectionSelection.textContent = 'Kontrol noktaları, proje ve uygunsuzluklar oturum açıldıktan sonra yetkine göre yüklenir.';
+    inspectionPermissionNotice.textContent = 'Görüntülemek için Hesap bölümünden giriş yap.'; inspectionHistory.replaceChildren();
+    const message = document.createElement('div'); message.className = 'message'; message.textContent = 'Giriş bekleniyor.'; inspectionHistory.append(message);
+    if (inspectionLegacyRecords) { inspectionLegacyRecords.replaceChildren(); inspectionLegacyRecords.textContent = 'Bağımsız saha kayıtları girişten sonra yüklenir.'; }
+    return;
+  }
   renderInspectionMarkers(); renderInspectionSummary(); renderInspectionSelection();
   void renderInspectionLegacyRecords();
   document.querySelectorAll('[data-inspection-filter]').forEach(button => button.classList.toggle('selected', button.dataset.inspectionFilter === inspectionFilter));
@@ -1977,6 +1990,9 @@ function projectRowsToInspection(data) {
 }
 async function refreshInspectionData() {
   const requestedProject = activeProjectId;
+  if (backendEnabled && !authenticatedProfile) {
+    applyInspectionState(emptyInspectionState(requestedProject)); selectedInspectionTarget = null; renderInspectionDashboard(); return;
+  }
   const existingElements = inspectionState.projectId === requestedProject ? Array.from(inspectionState.elements.values()) : [];
   try {
     if (backendEnabled && authenticatedProfile) {
