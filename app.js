@@ -1753,7 +1753,6 @@ function renderInspectionMarkers() {
     if (!statusMatchesFilter(status)) continue;
     const label = poleControlLabel(target);
     const marker = L.marker([target.lat, target.lon], { pane: 'fieldMarkerPane', icon: markerIcon(target, status), keyboard: true, title: label || target.label || 'Saha kontrol noktası' });
-    if (label) marker.bindTooltip(label, { permanent: true, direction: 'right', offset: [10, 0], className: 'inspection-marker-label', opacity: 1 });
     marker.on('click', () => selectInspectionTarget(target));
     marker.addTo(inspectionMarkerLayer);
   }
@@ -1955,7 +1954,7 @@ function renderInspectionSelection() {
   }
   const status = inspectionStatus(target);
   inspectionSelection.replaceChildren();
-  const title = document.createElement('strong'); title.textContent = target.label || (target.pointType === 'underground' ? 'Yeraltı kontrol noktası' : 'Direk kontrol noktası');
+  const title = document.createElement('strong'); title.textContent = poleControlLabel(target) || target.label || (target.pointType === 'underground' ? 'Yeraltı kontrol noktası' : 'Direk kontrol noktası');
   const info = document.createElement('small'); info.textContent = `${target.lat.toFixed(6)}, ${target.lon.toFixed(6)} · ${status === 'not-checked' ? 'Kontrol edilmedi' : status}`;
   inspectionSelection.append(title, info);
   inspectionPermissionNotice.textContent = isBedaEditor() ? 'Kayıtlar BEDA hesabı tarafından merkezi projeye yazılır.' : 'Salt okunur erişim: checklist ve uygunsuzluk geçmişini görüntüleyebilirsin.';
