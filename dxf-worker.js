@@ -399,7 +399,7 @@ function geometryCommand(entity, project, style) {
   }
   if (dot) return { type: 'point', point: dot, radius: type === 'INSERT' ? 4 : 2, color: style.color };
   if (!path || path.length < 2) return null;
-  return { type: 'path', points: path, closed, filled, fillOpacity, color: style.color, weight: style.weight, dash: style.dash };
+  return { type: 'path', points: path, closed, filled, isHatch: type === 'HATCH', fillOpacity, color: style.color, weight: style.weight, dash: style.dash };
 }
 
 function hatchColorForLegacy(entity, layer) {
