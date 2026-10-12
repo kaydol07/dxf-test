@@ -1669,7 +1669,10 @@ function emptyInspectionState(projectId = activeProjectId) {
 const TRANSPOSITION_CHECKLIST = { id: 'transposition', label: 'OG transpozisyon', groups: [{ id: 'record', label: 'Kayıt', items: [{ id: 'transposition-record', label: 'Transpozisyon kaydı' }] }] };
 function inspectionChecklistFor(target = selectedInspectionTarget) {
   if (target?.pointType === 'transposition' || target?.elementType === 'transposition') return TRANSPOSITION_CHECKLIST;
-  return INSPECTION_CONFIG.checklists?.[target?.pointType === 'underground' || target?.elementType === 'underground_route' ? 'underground' : 'pole'] || null;
+  const pointType = targetPointType(target);
+  if (pointType === 'box') return INSPECTION_CONFIG.checklists?.box || null;
+  if (pointType === 'lighting') return INSPECTION_CONFIG.checklists?.lighting || null;
+  return INSPECTION_CONFIG.checklists?.[pointType === 'underground' ? 'underground' : 'pole'] || null;
 }
 function inspectionItems(checklist) {
   return (checklist?.groups || []).flatMap(group => (group.items || []).map(item => ({ ...item, groupId: group.id, groupLabel: group.label })));
