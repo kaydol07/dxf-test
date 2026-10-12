@@ -184,10 +184,20 @@ function inspectionCandidates(dxf, project, intervalMeters = 5) {
     ? /(?:BOX|KUTU|PANO)/i.test(String(value || ''))
     : type === 'sdk' ? /GBOX/i.test(String(value || ''))
     : /(?:AYDIN|ARMAT[ÜU]R|LIGHT)/i.test(String(value || ''));
+  const vertex = value => {
+    /* DXF exports use both {x,y} and [x,y] coordinates. The parser also
+       exposes LINE endpoints through vertices for some files. Normalize all
+       of these shapes before generating 5 m inspection intervals. */
+    const point = Array.isArray(value) ? { x: value[0], y: value[1] } : (value?.position || value);
+    return Number.isFinite(Number(point?.x)) && Number.isFinite(Number(point?.y))
+      ? { ...point, x: Number(point.x), y: Number(point.y) } : null;
+  };
   const verticesFor = entity => {
-    if (String(entity?.type || '').toUpperCase() === 'LINE') return [entity.startPoint || entity.start, entity.endPoint || entity.end].filter(Boolean);
-    const vertices = entity?.vertices || entity?.points || entity?.fitPoints || [];
-    return Array.isArray(vertices) ? vertices.filter(point => Number.isFinite(point?.x) && Number.isFinite(point?.y)) : [];
+    const type = String(entity?.type || '').toUpperCase();
+    const listed = entity?.vertices || entity?.points || entity?.fitPoints || entity?.controlPoints || [];
+    if (Array.isArray(listed) && listed.length) return listed.map(vertex).filter(Boolean);
+    if (type === 'LINE') return [entity?.startPoint || entity?.start, entity?.endPoint || entity?.end].map(vertex).filter(Boolean);
+    return [];
   };
   const distanceMeters = (left, right) => {
     const radians = Math.PI / 180, latitude = (left[0] + right[0]) / 2 * radians;
@@ -316,7 +326,7 @@ function inspectionCandidates(dxf, project, intervalMeters = 5) {
   const spacing = Number.isFinite(Number(intervalMeters)) && Number(intervalMeters) > 0 ? Number(intervalMeters) : 5;
   for (let index = 0; index < (dxf.entities || []).length && candidates.length < maximum; index++) {
     const entity = dxf.entities[index] || {}, type = String(entity.type || '').toUpperCase(), layer = String(entity.layer || '');
-    if (!newUndergroundLayer.test(layer) || !['LINE', 'LWPOLYLINE', 'POLYLINE'].includes(type)) continue;
+    if (!newUndergroundLayer.test(layer) || !['LINE', 'LWPOLYLINE', 'POLYLINE', 'SPLINE'].includes(type)) continue;
     const route = verticesFor(entity).map(project).filter(point => Array.isArray(point) && Number.isFinite(point[0]) && Number.isFinite(point[1]));
     if (route.length < 2) continue;
     const handle = entity.handle || `${layer}:${type}:${index}`;
