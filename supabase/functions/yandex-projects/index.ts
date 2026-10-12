@@ -4,7 +4,7 @@ const ROOT = 'disk:/PROJELER'
 const CONTRACTORS = ['ERKSİS', 'ASTAN', 'ASMİN', 'ERBU', 'AZRAM']
 const ALLOWED_EXTENSIONS = ['.dxf', '.dxfproj', '.zip', '.kml', '.kmz']
 const VIEWER_EXTENSIONS = ALLOWED_EXTENSIONS
-const allowedOrigins = (Deno.env.get('APP_ALLOWED_ORIGINS') || 'http://127.0.0.1:4173,http://localhost:4173,http://127.0.0.1:4174,http://localhost:4174,https://kaydol07.github.io,https://spectacular-speculoos-626c11.netlify.app')
+const allowedOrigins = (Deno.env.get('APP_ALLOWED_ORIGINS') || 'http://127.0.0.1:4173,http://localhost:4173,http://127.0.0.1:4174,http://localhost:4174,https://kaydol07.github.io')
   .split(',').map(value => value.trim()).filter(Boolean)
 
 function corsHeaders(origin: string | null) {

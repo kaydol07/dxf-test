@@ -382,7 +382,7 @@ async function parseDxf(file, options = {}) {
   };
   try {
     const buffer = await file.arrayBuffer();
-    worker = new Worker(new URL('./dxf-worker.js?v=10', document.baseURI));
+    worker = new Worker(new URL('./dxf-worker.js?v=11', document.baseURI));
     const result = await new Promise((resolve, reject) => {
       const cancel = () => { if (settled) return; settled = true; reject(new Error('DXF yüklemesi iptal edildi.')); };
       activeDxfJobs.set(worker, cancel);
@@ -535,6 +535,21 @@ const authMessage = document.getElementById('authMessage');
 if (backendConfigured && !backendEnabled) authMessage.textContent = backendInitError;
 const authSignOutButtons = [document.getElementById('authSignOut'), document.getElementById('authGateSignOut')];
 const loginToolbarButton = document.getElementById('loginToolbarButton');
+const contractorPasswordAdmin = document.getElementById('contractorPasswordAdmin');
+const contractorPasswordAccount = document.getElementById('contractorPasswordAccount');
+const contractorNewPassword = document.getElementById('contractorNewPassword');
+const contractorConfirmPassword = document.getElementById('contractorConfirmPassword');
+const contractorPasswordSave = document.getElementById('contractorPasswordSave');
+const contractorPasswordMessage = document.getElementById('contractorPasswordMessage');
+function renderContractorPasswordAdmin() {
+  if (!contractorPasswordAdmin) return;
+  const permitted = Boolean(backendEnabled && authenticatedProfile && isBedaEditor());
+  contractorPasswordAdmin.hidden = !permitted;
+  if (!permitted) {
+    contractorNewPassword.value = ''; contractorConfirmPassword.value = '';
+    contractorPasswordMessage.textContent = '';
+  } else contractorPasswordMessage.textContent = 'Şifre yalnızca seçilen taşeron hesabı için değiştirilir.';
+}
 function updateLoginToolbar() {
   if (!loginToolbarButton) return;
   const loggedIn = Boolean(authenticatedProfile);
@@ -622,6 +637,24 @@ async function signOutAuthenticatedUser() {
   } catch (error) { authMessage.textContent = `Oturum kapatılamadı: ${error.message || 'bağlantı hatası'}`; }
   finally { authSignOutButtons.forEach(button => { if (button) button.disabled = false; }); }
 }
+async function updateContractorPassword() {
+  if (!backendEnabled || !authenticatedProfile || !isBedaEditor()) return;
+  const contractorCode = normalizeContractorCode(contractorPasswordAccount.value);
+  const password = contractorNewPassword.value;
+  if (!FIELD_CONTRACTORS.includes(contractorCode)) { contractorPasswordMessage.textContent = 'Geçerli bir taşeron hesabı seç.'; return; }
+  if (password.length < 8) { contractorPasswordMessage.textContent = 'Şifre en az 8 karakter olmalıdır.'; return; }
+  if (password !== contractorConfirmPassword.value) { contractorPasswordMessage.textContent = 'Yeni şifreler aynı değil.'; return; }
+  contractorPasswordSave.disabled = true; contractorPasswordMessage.textContent = 'Şifre güncelleniyor…';
+  try {
+    const { data, error } = await supabaseClient.functions.invoke('manage-contractor-password', { body: { contractorCode, password } });
+    if (error) throw error;
+    if (!data?.ok) throw new Error(data?.error || 'Şifre güncellenemedi.');
+    contractorNewPassword.value = ''; contractorConfirmPassword.value = '';
+    contractorPasswordMessage.textContent = `${contractorCode} hesabının şifresi güncellendi.`;
+  } catch (error) {
+    contractorPasswordMessage.textContent = error.message || 'Şifre güncellenemedi.';
+  } finally { contractorPasswordSave.disabled = false; }
+}
 document.getElementById('authForm').addEventListener('submit', async event => {
   event.preventDefault();
   if (!backendEnabled) { authMessage.textContent = backendInitError || 'Gerçek giriş için Supabase URL ve publishable key yapılandırılmalı.'; return; }
@@ -637,6 +670,7 @@ document.getElementById('authForm').addEventListener('submit', async event => {
   finally { button.disabled = false; }
 });
 authSignOutButtons.forEach(button => button?.addEventListener('click', signOutAuthenticatedUser));
+contractorPasswordSave?.addEventListener('click', () => { void updateContractorPassword(); });
 document.getElementById('authGateClose').addEventListener('click', () => { document.getElementById('authGate').hidden = true; });
 loginToolbarButton?.addEventListener('click', () => {
   if (authenticatedProfile) {
@@ -713,6 +747,7 @@ function applyDemoRole() {
     if (ownerLabel) ownerLabel.textContent = 'İşin taşeronu';
   }
   renderProjectContractorSelection();
+  renderContractorPasswordAdmin();
   if (typeof renderInspectionDashboard === 'function') renderInspectionDashboard();
 }
 fieldUserRoleInput.addEventListener('change', () => {
@@ -1671,6 +1706,7 @@ function inspectionChecklistFor(target = selectedInspectionTarget) {
   if (target?.pointType === 'transposition' || target?.elementType === 'transposition') return TRANSPOSITION_CHECKLIST;
   const pointType = targetPointType(target);
   if (pointType === 'box') return INSPECTION_CONFIG.checklists?.box || null;
+  if (pointType === 'sdk') return INSPECTION_CONFIG.checklists?.sdk || null;
   if (pointType === 'lighting') return INSPECTION_CONFIG.checklists?.lighting || null;
   return INSPECTION_CONFIG.checklists?.[pointType === 'underground' ? 'underground' : 'pole'] || null;
 }
@@ -1707,7 +1743,7 @@ function isLegacyTextPoleElement(element) {
   return element?.elementType === 'pole' && element?.metadata?.detected && element?.metadata?.candidateVersion !== 2;
 }
 function visibleInspectionElements() { return Array.from(inspectionState.elements.values()).filter(element => !isLegacyTextPoleElement(element) && !(element.elementType === 'underground_route' && element.metadata?.detected)); }
-function targetPointType(target) { return target?.elementType === 'underground_route' ? 'underground' : target?.elementType === 'transposition' ? 'transposition' : target?.elementType === 'box' ? 'box' : target?.elementType === 'lighting' ? 'lighting' : target?.pointType || 'pole'; }
+function targetPointType(target) { return target?.elementType === 'underground_route' ? 'underground' : target?.elementType === 'transposition' ? 'transposition' : target?.elementType === 'sdk' ? 'sdk' : target?.elementType === 'box' ? 'box' : target?.elementType === 'lighting' ? 'lighting' : target?.pointType || 'pole'; }
 function inspectionStatus(target) {
   const point = inspectionPointForTarget(target);
   if (!point) return 'not-checked';
@@ -1727,15 +1763,15 @@ function statusMatchesFilter(status) {
 }
 function markerIcon(target, status) {
   const pointType = targetPointType(target);
-  const kind = pointType === 'underground' ? 'underground' : pointType === 'box' ? 'box' : pointType === 'lighting' ? 'lighting' : pointType === 'transposition' ? 'transposition' : target.elementType === 'manual' ? 'manual' : 'pole';
+  const kind = pointType === 'underground' ? 'underground' : pointType === 'sdk' ? 'sdk' : pointType === 'box' ? 'box' : pointType === 'lighting' ? 'lighting' : pointType === 'transposition' ? 'transposition' : target.elementType === 'manual' ? 'manual' : 'pole';
   return L.divIcon({ className: '', iconSize: [18, 18], iconAnchor: [9, 9], html: `<span class="inspection-marker ${kind} ${status}"></span>` });
 }
 function poleControlLabel(target) {
   if (targetPointType(target) !== 'pole' || target?.metadata?.manual) return '';
   const metadata = target.metadata || {};
   const numberPattern = /^[A-ZÇĞİÖŞÜ]{1,3}[-.]?\d{1,4}(?:\([A-ZÇĞİÖŞÜ0-9/-]{1,8}\))?$/i;
-  const cleanType = value => String(value || '').trim().replace(/^G\s*[-–—]\s*/i, '').replace(/["'“”·]/g, '').replace(/\s+/g, '').toLocaleUpperCase('tr-TR');
-  const typePattern = /^(?:(?:[A-ZÇĞİÖŞÜ]{1,3}\d{0,4})|(?:\d{1,3}[A-ZÇĞİÖŞÜ]{1,3}))(?:\([A-ZÇĞİÖŞÜ0-9/-]{1,8}\))?$/i;
+  const cleanType = value => String(value || '').trim().replace(/^G\s*[-–—]\s*/i, '').replace(/[“”]/g, '"').replace(/·/g, '').replace(/\s+/g, '').toLocaleUpperCase('tr-TR');
+  const typePattern = /^(?:(?:[A-ZÇĞİÖŞÜ]{1,3}\d{0,4})|(?:\d{1,3}[A-ZÇĞİÖŞÜ]{1,3}))(?:\([A-ZÇĞİÖŞÜ0-9/-]{1,8}\))?["']?$/i;
   const labelTexts = Array.isArray(metadata.labels) ? metadata.labels.map(item => typeof item === 'string' ? item : item?.text).filter(Boolean) : [];
   let number = String(metadata.poleNumber || '').trim().replace(/\s+/g, '').toLocaleUpperCase('tr-TR');
   let type = cleanType(target.poleType);
@@ -2001,7 +2037,7 @@ async function persistLocalInspectionState() {
 function applyInspectionState(snapshot = {}) {
   inspectionState = {
     projectId: activeProjectId,
-    elements: new Map((snapshot.elements || []).map(element => [element.elementId, element])),
+    elements: new Map((Array.isArray(snapshot.elements) ? snapshot.elements : snapshot.elements instanceof Map ? Array.from(snapshot.elements.values()) : Object.values(snapshot.elements || {})).map(element => [element.elementId, element])),
     points: snapshot.points || [], results: snapshot.results || [], nonconformities: snapshot.nonconformities || [],
     events: snapshot.events || [], attachments: snapshot.attachments || [], localOnly: Boolean(snapshot.localOnly)
   };
@@ -2105,7 +2141,7 @@ async function migrateLegacyPoleBindings(elements) {
 function registerDetectedElements(candidates, sourceFileName) {
   const accepted = [];
   for (const candidate of (candidates || []).slice(0, 2500)) {
-    if (!candidate || !Number.isFinite(candidate.lat) || !Number.isFinite(candidate.lon) || !['pole', 'box', 'lighting', 'transposition'].includes(candidate.elementType)) continue;
+    if (!candidate || !Number.isFinite(candidate.lat) || !Number.isFinite(candidate.lon) || !['pole', 'box', 'lighting', 'sdk', 'transposition'].includes(candidate.elementType)) continue;
     const elementId = String(candidate.elementId || `${candidate.elementType}:${candidate.sourceHandle || ''}:${candidate.lat.toFixed(6)}:${candidate.lon.toFixed(6)}`);
     const element = { ...candidate, elementId, sourceFileName, metadata: { ...(candidate.metadata || {}), sourceFileName } };
     inspectionState.elements.set(elementId, element); accepted.push(element);

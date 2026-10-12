@@ -4,7 +4,7 @@
  * güncellenir; arayüz ve kayıt modeli aynı kalır.
  */
 window.DXF_INSPECTION_CONFIG = {
-  version: 2,
+  version: 3,
   theme: {
     notChecked: '#77817e',
     compliant: '#27854a',
@@ -84,6 +84,24 @@ window.DXF_INSPECTION_CONFIG = {
           { id: 'box-protection', label: 'Koruma elemanları', technicalNote: 'Sigorta, şalter ve koruma elemanları proje ile uyumlu olmalıdır.' },
           { id: 'box-labeling', label: 'Etiketleme', technicalNote: 'Pano/BOX etiketi ve devre tanımları okunabilir olmalıdır.' },
           { id: 'box-test', label: 'Enerji / fonksiyon testi', technicalNote: 'Gerekli emniyet önlemleri alınarak çalışma kontrolü yapılmalıdır.' }
+        ] }
+      ]
+    },
+    sdk: {
+      id: 'sdk',
+      label: 'SDK denetimi',
+      groups: [
+        { id: 'sdk-installation', label: 'Yer ve montaj', items: [
+          { id: 'sdk-location', label: 'Proje konumu', technicalNote: 'SDK noktası proje koordinatı ve yerleşim planı ile uyumlu olmalıdır.' },
+          { id: 'sdk-base', label: 'Kaide ve sabitleme', technicalNote: 'Kaide, ankraj ve montaj elemanları sağlam olmalıdır.' },
+          { id: 'sdk-enclosure', label: 'Gövde ve kapak', technicalNote: 'Gövde, kapak, kilit ve dış yüzey hasarsız olmalıdır.' },
+          { id: 'sdk-cable-entry', label: 'Kablo girişleri', technicalNote: 'Kablo girişleri, rakorlar ve sızdırmazlık elemanları kontrol edilmelidir.' }
+        ] },
+        { id: 'sdk-electrical', label: 'Elektrik ve emniyet', items: [
+          { id: 'sdk-grounding', label: 'Topraklama', technicalNote: 'Gövde ve tesis topraklama bağlantıları kontrol edilmelidir.' },
+          { id: 'sdk-connections', label: 'Bara ve klemens bağlantıları', technicalNote: 'Bağlantılar sıkı, düzenli ve uygun şekilde işaretlenmiş olmalıdır.' },
+          { id: 'sdk-protection', label: 'Koruma elemanları', technicalNote: 'Sigorta, şalter ve koruma elemanları projeye uygun olmalıdır.' },
+          { id: 'sdk-function-test', label: 'Enerji / fonksiyon testi', technicalNote: 'Gerekli emniyet önlemleri ile çalışma kontrolü yapılmalıdır.' }
         ] }
       ]
     },

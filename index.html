@@ -156,6 +156,19 @@
       <div class="section-label">HESAP</div>
       <div class="field-current-user" id="fieldCurrentUser" hidden></div>
       <button class="wide-button" id="authSignOut" type="button" hidden>OTURUMU KAPAT</button>
+      <section class="contractor-password-admin" id="contractorPasswordAdmin" hidden>
+        <div class="section-label">TAŞERON ŞİFRE YÖNETİMİ</div>
+        <label for="contractorPasswordAccount">Taşeron hesabı</label>
+        <select class="field-input" id="contractorPasswordAccount">
+          <option value="ERKSİS">ERKSİS</option><option value="ASTAN">ASTAN</option><option value="ASMİN">ASMİN</option><option value="ERBU">ERBU</option><option value="AZRAM">AZRAM</option>
+        </select>
+        <label for="contractorNewPassword">Yeni şifre</label>
+        <input class="field-input" id="contractorNewPassword" type="password" autocomplete="new-password" minlength="8">
+        <label for="contractorConfirmPassword">Yeni şifre tekrar</label>
+        <input class="field-input" id="contractorConfirmPassword" type="password" autocomplete="new-password" minlength="8">
+        <button class="wide-button" id="contractorPasswordSave" type="button">TAŞERON ŞİFRESİNİ GÜNCELLE</button>
+        <div class="message" id="contractorPasswordMessage" role="status"></div>
+      </section>
     </section>
     <div class="inspection-summary" id="inspectionSummary" aria-live="polite"></div>
     <div class="section-label">DURUM FİLTRESİ</div>
@@ -223,8 +236,8 @@
   <script src="https://cdn.jsdelivr.net/npm/@mapbox/togeojson@0.16.2/togeojson.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="./supabase-config.js?v=4"></script>
-  <script src="./inspection-config.js?v=2"></script>
-  <script src="./app.js?v=46"></script>
+  <script src="./inspection-config.js?v=3"></script>
+  <script src="./app.js?v=48"></script>
 </body>
 </html>
 

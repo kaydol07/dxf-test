@@ -171,18 +171,25 @@ function inspectionCandidates(dxf, project, intervalMeters = 5) {
      symbols, unlike nearby pole number/type texts. */
   const poleSymbolText = value => /^(?:q|4|5|[øØ●○])$/i.test(String(value || '').trim());
   const poleNumberText = value => /^[A-ZÇĞİÖŞÜ]{1,3}\s*[-.]?\s*\d{1,4}(?:\s*\([A-ZÇĞİÖŞÜ0-9/-]{1,8}\))?$/i.test(String(value || '').trim());
-  const poleTypeText = value => /^(?:G\s*[-–—]\s*)?(?:(?:[A-ZÇĞİÖŞÜ]{1,3}\s*\d{0,4})|(?:\d{1,3}\s*[A-ZÇĞİÖŞÜ]{1,3}))(?:\s*\([A-ZÇĞİÖŞÜ0-9/-]{1,8}\))?$/i.test(String(value || '').trim());
-  const cleanPoleType = value => String(value || '').trim().replace(/^G\s*[-–—]\s*/i, '').replace(/["'“”·]/g, '').replace(/\s+/g, '');
+  const poleTypeText = value => /^(?:G\s*[-–—]\s*)?(?:(?:[A-ZÇĞİÖŞÜ]{1,3}\s*\d{0,4})|(?:\d{1,3}\s*[A-ZÇĞİÖŞÜ]{1,3}))(?:\s*\([A-ZÇĞİÖŞÜ0-9/-]{1,8}\))?["“”]?$/i.test(String(value || '').trim());
+  /* The quotation mark is part of the pole type in these drawings, for
+     example G-K3". Remove only the G- CAD prefix when presenting it. */
+  const cleanPoleType = value => String(value || '').trim().replace(/^G\s*[-–—]\s*/i, '').replace(/[“”]/g, '"').replace(/·/g, '').replace(/\s+/g, '');
+  const lightingLabelText = value => /^AD1(?:[\s._-]*\d+)?(?:\b|$)/i.test(String(value || '').trim());
+  const sdkLabelText = value => /^GBOX(?:\b|$)/i.test(String(value || '').trim());
   const newPoleBlock = value => /(?:YEN[Iİ]|NEW).*(?:D[Iİ]REK|POLE)|(?:D[Iİ]REK|POLE).*(?:YEN[Iİ]|NEW)/i.test(String(value || ''));
   const assetBlock = (value, type) => type === 'box'
     ? /(?:BOX|KUTU|PANO)/i.test(String(value || ''))
+    : type === 'sdk' ? /GBOX/i.test(String(value || ''))
     : /(?:AYDIN|ARMAT[ÜU]R|LIGHT)/i.test(String(value || ''));
-  const poleSymbols = [], poleLabels = [], assetSymbols = [], transpositionLabels = [];
+  const poleSymbols = [], poleLabels = [], assetSymbols = [], assetLabels = [], transpositionLabels = [];
   for (let index = 0; index < (dxf.entities || []).length && candidates.length < maximum; index++) {
     const entity = dxf.entities[index] || {}, type = String(entity.type || '').toUpperCase();
     const layer = String(entity.layer || ''), name = String(entity.name || '');
     const raw = entityPoint(entity);
     const text = String(entity.text || entity.value || '').trim();
+    const taggedAssetType = sdkLabelText(text) || sdkLabelText(name) ? 'sdk'
+      : lightingLabelText(text) || lightingLabelText(name) ? 'lighting' : null;
     if (raw && Number.isFinite(raw.x) && Number.isFinite(raw.y) && transposition.test(`${layer} ${name} ${text}`)
         && ((['TEXT', 'MTEXT', 'ATTRIB'].includes(type) && transposition.test(text)) || (type === 'INSERT' && transposition.test(name)))) {
       transpositionLabels.push({ entity, type, layer, name, text, raw, index });
@@ -196,6 +203,13 @@ function inspectionCandidates(dxf, project, intervalMeters = 5) {
       if (['TEXT', 'MTEXT', 'ATTRIB'].includes(type) && text) {
         poleLabels.push({ entity, type, layer, text, raw });
         continue;
+      }
+    }
+    if (taggedAssetType && raw && Number.isFinite(raw.x) && Number.isFinite(raw.y)) {
+      if (['TEXT', 'MTEXT', 'ATTRIB'].includes(type) && text) {
+        assetLabels.push({ entity, type, layer, name, text, raw, index, assetType: taggedAssetType });
+      } else if ((type === 'INSERT' && assetBlock(name, taggedAssetType)) || type === 'POINT') {
+        assetSymbols.push({ entity, type, layer, name, text, raw, index, assetType: taggedAssetType });
       }
     }
     if (raw && Number.isFinite(raw.x) && Number.isFinite(raw.y) && (newBoxLayer.test(layer) || newLightingLayer.test(layer))) {
@@ -245,12 +259,33 @@ function inspectionCandidates(dxf, project, intervalMeters = 5) {
   }
   const uniqueAssets = [];
   for (const symbol of assetSymbols) if (!uniqueAssets.some(existing => existing.assetType === symbol.assetType && rawDistance(existing.raw, symbol.raw) <= 0.02)) uniqueAssets.push(symbol);
+  const uniqueAssetLabels = [];
+  for (const label of assetLabels) if (!uniqueAssetLabels.some(existing => existing.assetType === label.assetType && rawDistance(existing.raw, label.raw) <= 0.02)) uniqueAssetLabels.push(label);
+  const attachedLabel = symbol => {
+    const labels = uniqueAssetLabels.filter(label => label.assetType === symbol.assetType);
+    const distances = labels.map(label => rawDistance(symbol.raw, label.raw));
+    const nearest = Math.min(...distances);
+    if (!Number.isFinite(nearest) || nearest > 14 || distances.filter(value => Math.abs(value - nearest) <= 0.02).length !== 1) return null;
+    return labels[distances.indexOf(nearest)];
+  };
   for (const symbol of uniqueAssets) {
     const point = project(symbol.raw); if (!point) continue;
     const handle = symbol.entity.handle || `${symbol.layer}:${symbol.name}:${Number(symbol.raw.x).toFixed(3)}:${Number(symbol.raw.y).toFixed(3)}`;
-    const label = symbol.assetType === 'box' ? 'Yeni BOX' : 'Yeni aydınlatma noktası';
+    const linkedLabel = attachedLabel(symbol);
+    const label = linkedLabel?.text || (symbol.assetType === 'box' ? 'Yeni BOX' : symbol.assetType === 'sdk' ? 'SDK noktası' : 'Yeni aydınlatma noktası');
     add({ elementId: `${symbol.assetType}:${stable(handle)}`, elementType: symbol.assetType, sourceLayer: symbol.layer, sourceHandle: symbol.entity.handle || null,
-      label, lat: point[0], lon: point[1], metadata: { detected: true, candidateVersion: 3, newAsset: true, entityType: symbol.type, symbol: symbol.text || symbol.name || 'POINT', detectionConfidence: 'high' } });
+      label, lat: point[0], lon: point[1], metadata: { detected: true, candidateVersion: 3, newAsset: true, entityType: symbol.type, symbol: symbol.text || symbol.name || 'POINT', labelText: linkedLabel?.text || null, detectionConfidence: 'high' } });
+  }
+  for (const label of uniqueAssetLabels) {
+    const nearbySymbols = uniqueAssets.filter(symbol => symbol.assetType === label.assetType);
+    const distances = nearbySymbols.map(symbol => rawDistance(symbol.raw, label.raw));
+    const nearest = Math.min(...distances);
+    /* A nearby unambiguous symbol already represents this labelled asset. */
+    if (Number.isFinite(nearest) && nearest <= 14 && distances.filter(value => Math.abs(value - nearest) <= 0.02).length === 1) continue;
+    const point = project(label.raw); if (!point) continue;
+    const handle = label.entity.handle || `${label.layer}:${label.text}:${Number(label.raw.x).toFixed(3)}:${Number(label.raw.y).toFixed(3)}`;
+    add({ elementId: `${label.assetType}-label:${stable(handle)}`, elementType: label.assetType, sourceLayer: label.layer, sourceHandle: label.entity.handle || null,
+      label: label.text, lat: point[0], lon: point[1], metadata: { detected: true, candidateVersion: 3, newAsset: true, labelDriven: true, entityType: label.type, labelText: label.text, detectionConfidence: 'high' } });
   }
   const uniqueTranspositions = [];
   for (const item of transpositionLabels) if (!uniqueTranspositions.some(existing => rawDistance(existing.raw, item.raw) <= 0.02)) uniqueTranspositions.push(item);
