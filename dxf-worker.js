@@ -162,6 +162,8 @@ function inspectionCandidates(dxf, project, intervalMeters = 5) {
   const newPoleLayer = /(?=.*(?:D[Iİ]REK|POLE))(?=.*(?:YEN[Iİ]|NEW))/i;
   const newBoxLayer = /(?:YEN[Iİ]|NEW).*(?:BOX|KUTU|PANO)|(?:BOX|KUTU|PANO).*(?:YEN[Iİ]|NEW)/i;
   const newLightingLayer = /(?:YEN[Iİ]|NEW).*(?:AYDIN|ARMAT[ÜU]R|LIGHT)|(?:AYDIN|ARMAT[ÜU]R|LIGHT).*(?:YEN[Iİ]|NEW)/i;
+  const newUndergroundLayer = /(?:YEN[Iİ]|NEW).*(?:KANAL|KABLO|YERALT[Iİ]|YERALTI|TRENCH)|(?:KANAL|KABLO|YERALT[Iİ]|YERALTI|TRENCH).*(?:YEN[Iİ]|NEW)/i;
+  const isNewLayer = value => /(?:YEN[Iİ]|NEW)/i.test(String(value || ''));
   const transposition = /TRANS(?:POZ(?:[Iİ]SYON)?|POSITION)/i;
   const stable = value => String(value || '').replace(/[^a-zA-Z0-9_.:-]+/g, '_').slice(0, 120);
   const add = value => { if (value && candidates.length < maximum) candidates.push(value); };
@@ -182,6 +184,18 @@ function inspectionCandidates(dxf, project, intervalMeters = 5) {
     ? /(?:BOX|KUTU|PANO)/i.test(String(value || ''))
     : type === 'sdk' ? /GBOX/i.test(String(value || ''))
     : /(?:AYDIN|ARMAT[ÜU]R|LIGHT)/i.test(String(value || ''));
+  const verticesFor = entity => {
+    if (String(entity?.type || '').toUpperCase() === 'LINE') return [entity.startPoint || entity.start, entity.endPoint || entity.end].filter(Boolean);
+    const vertices = entity?.vertices || entity?.points || entity?.fitPoints || [];
+    return Array.isArray(vertices) ? vertices.filter(point => Number.isFinite(point?.x) && Number.isFinite(point?.y)) : [];
+  };
+  const distanceMeters = (left, right) => {
+    const radians = Math.PI / 180, latitude = (left[0] + right[0]) / 2 * radians;
+    const north = (right[0] - left[0]) * 111132;
+    const east = (right[1] - left[1]) * 111320 * Math.cos(latitude);
+    return Math.hypot(north, east);
+  };
+  const interpolate = (left, right, fraction) => [left[0] + (right[0] - left[0]) * fraction, left[1] + (right[1] - left[1]) * fraction];
   const poleSymbols = [], poleLabels = [], assetSymbols = [], assetLabels = [], transpositionLabels = [];
   for (let index = 0; index < (dxf.entities || []).length && candidates.length < maximum; index++) {
     const entity = dxf.entities[index] || {}, type = String(entity.type || '').toUpperCase();
@@ -190,7 +204,7 @@ function inspectionCandidates(dxf, project, intervalMeters = 5) {
     const text = String(entity.text || entity.value || '').trim();
     const taggedAssetType = sdkLabelText(text) || sdkLabelText(name) ? 'sdk'
       : lightingLabelText(text) || lightingLabelText(name) ? 'lighting' : null;
-    if (raw && Number.isFinite(raw.x) && Number.isFinite(raw.y) && transposition.test(`${layer} ${name} ${text}`)
+    if (isNewLayer(layer) && raw && Number.isFinite(raw.x) && Number.isFinite(raw.y) && transposition.test(`${layer} ${name} ${text}`)
         && ((['TEXT', 'MTEXT', 'ATTRIB'].includes(type) && transposition.test(text)) || (type === 'INSERT' && transposition.test(name)))) {
       transpositionLabels.push({ entity, type, layer, name, text, raw, index });
     }
@@ -205,7 +219,7 @@ function inspectionCandidates(dxf, project, intervalMeters = 5) {
         continue;
       }
     }
-    if (taggedAssetType && raw && Number.isFinite(raw.x) && Number.isFinite(raw.y)) {
+    if (taggedAssetType && isNewLayer(layer) && raw && Number.isFinite(raw.x) && Number.isFinite(raw.y)) {
       if (['TEXT', 'MTEXT', 'ATTRIB'].includes(type) && text) {
         assetLabels.push({ entity, type, layer, name, text, raw, index, assetType: taggedAssetType });
       } else if ((type === 'INSERT' && assetBlock(name, taggedAssetType)) || type === 'POINT') {
@@ -294,6 +308,31 @@ function inspectionCandidates(dxf, project, intervalMeters = 5) {
     const handle = item.entity.handle || `${item.layer}:${item.name}:${Number(item.raw.x).toFixed(3)}:${Number(item.raw.y).toFixed(3)}`;
     add({ elementId: `transposition:${stable(handle)}`, elementType: 'transposition', sourceLayer: item.layer, sourceHandle: item.entity.handle || null,
       label: item.text || item.name || 'OG transpozisyon noktası', lat: point[0], lon: point[1], metadata: { detected: true, candidateVersion: 3, transposition: true, entityType: item.type, description: item.text || item.name || null, detectionConfidence: 'high' } });
+  }
+  /* Only routes drawn on an explicitly new channel/cable layer get interval
+     points. Existing underground lines stay as CAD geometry and never create
+     inspection markers. Coordinates are sampled after projection so the
+     configured interval is always in metres. */
+  const spacing = Number.isFinite(Number(intervalMeters)) && Number(intervalMeters) > 0 ? Number(intervalMeters) : 5;
+  for (let index = 0; index < (dxf.entities || []).length && candidates.length < maximum; index++) {
+    const entity = dxf.entities[index] || {}, type = String(entity.type || '').toUpperCase(), layer = String(entity.layer || '');
+    if (!newUndergroundLayer.test(layer) || !['LINE', 'LWPOLYLINE', 'POLYLINE'].includes(type)) continue;
+    const route = verticesFor(entity).map(project).filter(point => Array.isArray(point) && Number.isFinite(point[0]) && Number.isFinite(point[1]));
+    if (route.length < 2) continue;
+    const handle = entity.handle || `${layer}:${type}:${index}`;
+    let traversed = 0, nextOffset = 0, pointIndex = 0;
+    for (let vertex = 1; vertex < route.length && candidates.length < maximum; vertex++) {
+      const from = route[vertex - 1], to = route[vertex], segment = distanceMeters(from, to);
+      if (!Number.isFinite(segment) || segment < .01) continue;
+      while (nextOffset <= traversed + segment + .001 && candidates.length < maximum) {
+        const fraction = Math.max(0, Math.min(1, (nextOffset - traversed) / segment));
+        const point = interpolate(from, to, fraction), offsetMeters = Math.round(nextOffset * 100) / 100;
+        add({ elementId: `underground:${stable(handle)}:${pointIndex++}`, elementType: 'underground', pointType: 'underground', sourceLayer: layer, sourceHandle: entity.handle || null,
+          label: `Yeni kanal · ${offsetMeters} m`, lat: point[0], lon: point[1], metadata: { detected: true, candidateVersion: 4, newUnderground: true, intervalMeters: spacing, offsetMeters, routeHandle: entity.handle || null, entityType: type, detectionConfidence: 'high' } });
+        nextOffset += spacing;
+      }
+      traversed += segment;
+    }
   }
   return candidates;
 }

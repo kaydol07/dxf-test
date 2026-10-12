@@ -88,6 +88,27 @@
     <button class="close" aria-label="Kapat">×</button><div class="panel-heading">📍 KONUM</div>
     <p>Canlı konum takibini başlat. Konumun hareket ettikçe harita güncellenir.</p><button class="wide-button primary" id="locateButton">CANLI TAKİBİ BAŞLAT</button><div class="message" id="locationStatus" role="status">Takip kapalı</div>
   </section>
+  <section class="drawer panel account-panel" id="accountPanel" hidden>
+    <button class="close" aria-label="Kapat">×</button>
+    <div class="panel-heading">👤 HESAP</div>
+    <section class="inspection-account" id="inspectionAccount">
+      <div class="field-current-user" id="fieldCurrentUser" hidden></div>
+      <button class="wide-button" id="authSignOut" type="button" hidden>OTURUMU KAPAT</button>
+      <section class="contractor-password-admin" id="contractorPasswordAdmin" hidden>
+        <div class="section-label">TAŞERON ŞİFRE YÖNETİMİ</div>
+        <label for="contractorPasswordAccount">Taşeron hesabı</label>
+        <select class="field-input" id="contractorPasswordAccount">
+          <option value="ERKSİS">ERKSİS</option><option value="ASTAN">ASTAN</option><option value="ASMİN">ASMİN</option><option value="ERBU">ERBU</option><option value="AZRAM">AZRAM</option>
+        </select>
+        <label for="contractorNewPassword">Yeni şifre</label>
+        <input class="field-input" id="contractorNewPassword" type="password" autocomplete="new-password" minlength="8">
+        <label for="contractorConfirmPassword">Yeni şifre tekrar</label>
+        <input class="field-input" id="contractorConfirmPassword" type="password" autocomplete="new-password" minlength="8">
+        <button class="wide-button" id="contractorPasswordSave" type="button">TAŞERON ŞİFRESİNİ GÜNCELLE</button>
+        <div class="message" id="contractorPasswordMessage" role="status"></div>
+      </section>
+    </section>
+  </section>
   <section class="drawer panel" id="fieldPanel" hidden>
     <button class="close" aria-label="Kapat">×</button>
     <div class="panel-heading">📷 SAHA KAYITLARI</div>
@@ -152,24 +173,6 @@
     <button class="close" aria-label="Kapat">×</button>
     <div class="panel-heading">✓ SAHA DENETİMİ</div>
     <div class="message field-project-label" id="inspectionProjectLabel">Proje: Saha Denemesi</div>
-    <section class="inspection-account" id="inspectionAccount">
-      <div class="section-label">HESAP</div>
-      <div class="field-current-user" id="fieldCurrentUser" hidden></div>
-      <button class="wide-button" id="authSignOut" type="button" hidden>OTURUMU KAPAT</button>
-      <section class="contractor-password-admin" id="contractorPasswordAdmin" hidden>
-        <div class="section-label">TAŞERON ŞİFRE YÖNETİMİ</div>
-        <label for="contractorPasswordAccount">Taşeron hesabı</label>
-        <select class="field-input" id="contractorPasswordAccount">
-          <option value="ERKSİS">ERKSİS</option><option value="ASTAN">ASTAN</option><option value="ASMİN">ASMİN</option><option value="ERBU">ERBU</option><option value="AZRAM">AZRAM</option>
-        </select>
-        <label for="contractorNewPassword">Yeni şifre</label>
-        <input class="field-input" id="contractorNewPassword" type="password" autocomplete="new-password" minlength="8">
-        <label for="contractorConfirmPassword">Yeni şifre tekrar</label>
-        <input class="field-input" id="contractorConfirmPassword" type="password" autocomplete="new-password" minlength="8">
-        <button class="wide-button" id="contractorPasswordSave" type="button">TAŞERON ŞİFRESİNİ GÜNCELLE</button>
-        <div class="message" id="contractorPasswordMessage" role="status"></div>
-      </section>
-    </section>
     <div class="inspection-summary" id="inspectionSummary" aria-live="polite"></div>
     <div class="section-label">DURUM FİLTRESİ</div>
     <div class="inspection-filters" id="inspectionFilters">
@@ -237,7 +240,7 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="./supabase-config.js?v=4"></script>
   <script src="./inspection-config.js?v=3"></script>
-  <script src="./app.js?v=48"></script>
+  <script src="./app.js?v=49"></script>
 </body>
 </html>
 

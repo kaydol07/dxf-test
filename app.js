@@ -8,7 +8,7 @@ const bases={
 };
 bases.satellite.addTo(map);
 let labelLayer=L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager_only_labels/{z}/{x}/{y}{r}.png',{attribution:'',maxZoom:20,pane:'overlayPane'}).addTo(map);
-const panels=['projectPanel','inspectionPanel','locationPanel','addressPanel','parcelPanel'];
+const panels=['projectPanel','inspectionPanel','locationPanel','accountPanel','addressPanel','parcelPanel'];
 function keepMapVisible(){if(canViewInspectionData()){if(!map.hasLayer(inspectionMarkerLayer))inspectionMarkerLayer.addTo(map)}else{inspectionMarkerLayer.clearLayers();if(map.hasLayer(inspectionMarkerLayer))map.removeLayer(inspectionMarkerLayer)}}
 function openPanel(id){panels.forEach(p=>document.getElementById(p).hidden=p!==id||!document.getElementById(p).hidden);document.querySelectorAll('.toolbar [data-panel]').forEach(b=>b.classList.toggle('active',b.dataset.panel===id&&!document.getElementById(id).hidden));keepMapVisible();}
 document.querySelectorAll('.toolbar [data-panel]').forEach(button=>button.addEventListener('click',()=>{const id=button.dataset.panel;const wasClosed=document.getElementById(id).hidden;if(fieldPickActive)setFieldPick(false);openPanel(id);if(id==='locationPanel'&&wasClosed)startLocationTracking();if(id==='parcelPanel')setParcelPick(wasClosed)}));
@@ -382,7 +382,7 @@ async function parseDxf(file, options = {}) {
   };
   try {
     const buffer = await file.arrayBuffer();
-    worker = new Worker(new URL('./dxf-worker.js?v=11', document.baseURI));
+    worker = new Worker(new URL('./dxf-worker.js?v=12', document.baseURI));
     const result = await new Promise((resolve, reject) => {
       const cancel = () => { if (settled) return; settled = true; reject(new Error('DXF yüklemesi iptal edildi.')); };
       activeDxfJobs.set(worker, cancel);
@@ -674,7 +674,7 @@ contractorPasswordSave?.addEventListener('click', () => { void updateContractorP
 document.getElementById('authGateClose').addEventListener('click', () => { document.getElementById('authGate').hidden = true; });
 loginToolbarButton?.addEventListener('click', () => {
   if (authenticatedProfile) {
-    openPanel('inspectionPanel');
+    openPanel('accountPanel');
   } else {
     openLoginPanel();
   }
@@ -1743,7 +1743,7 @@ function isLegacyTextPoleElement(element) {
   return element?.elementType === 'pole' && element?.metadata?.detected && element?.metadata?.candidateVersion !== 2;
 }
 function visibleInspectionElements() { return Array.from(inspectionState.elements.values()).filter(element => !isLegacyTextPoleElement(element) && !(element.elementType === 'underground_route' && element.metadata?.detected)); }
-function targetPointType(target) { return target?.elementType === 'underground_route' ? 'underground' : target?.elementType === 'transposition' ? 'transposition' : target?.elementType === 'sdk' ? 'sdk' : target?.elementType === 'box' ? 'box' : target?.elementType === 'lighting' ? 'lighting' : target?.pointType || 'pole'; }
+function targetPointType(target) { return target?.elementType === 'underground_route' || target?.elementType === 'underground' ? 'underground' : target?.elementType === 'transposition' ? 'transposition' : target?.elementType === 'sdk' ? 'sdk' : target?.elementType === 'box' ? 'box' : target?.elementType === 'lighting' ? 'lighting' : target?.pointType || 'pole'; }
 function inspectionStatus(target) {
   const point = inspectionPointForTarget(target);
   if (!point) return 'not-checked';
@@ -2141,7 +2141,7 @@ async function migrateLegacyPoleBindings(elements) {
 function registerDetectedElements(candidates, sourceFileName) {
   const accepted = [];
   for (const candidate of (candidates || []).slice(0, 2500)) {
-    if (!candidate || !Number.isFinite(candidate.lat) || !Number.isFinite(candidate.lon) || !['pole', 'box', 'lighting', 'sdk', 'transposition'].includes(candidate.elementType)) continue;
+    if (!candidate || !Number.isFinite(candidate.lat) || !Number.isFinite(candidate.lon) || !['pole', 'box', 'lighting', 'sdk', 'underground', 'transposition'].includes(candidate.elementType)) continue;
     const elementId = String(candidate.elementId || `${candidate.elementType}:${candidate.sourceHandle || ''}:${candidate.lat.toFixed(6)}:${candidate.lon.toFixed(6)}`);
     const element = { ...candidate, elementId, sourceFileName, metadata: { ...(candidate.metadata || {}), sourceFileName } };
     inspectionState.elements.set(elementId, element); accepted.push(element);
