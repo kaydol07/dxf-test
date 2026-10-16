@@ -4,7 +4,7 @@
  * güncellenir; arayüz ve kayıt modeli aynı kalır.
  */
 window.DXF_INSPECTION_CONFIG = {
-  version: 3,
+  version: 4,
   theme: {
     notChecked: '#77817e',
     compliant: '#27854a',
@@ -30,12 +30,26 @@ window.DXF_INSPECTION_CONFIG = {
       label: 'Direk denetimi',
       groups: [
         { id: 'pole-installation', label: 'Direk / imalat', items: [
-          { id: 'pole-installation', label: 'Direk dikimi', technicalNote: 'Direk tipi ve görevine uygun dikim kontrolü.' },
-          { id: 'excavation', label: 'Çukur', technicalNote: 'Çukurun proje ve zemin şartlarına uygunluğu.' },
+          { id: 'excavation', label: 'Çukur açılması', technicalNote: 'Çukurun proje ve zemin şartlarına uygunluğu.', children: [
+            { id: 'excavation-width', label: 'Çukur eni' },
+            { id: 'excavation-length', label: 'Çukur boyu' },
+            { id: 'excavation-depth', label: 'Çukur derinliği' },
+            { id: 'excavation-angle', label: 'Çukur açısı' }
+          ] },
+          { id: 'pole-installation', label: 'Direk dikimi', technicalNote: 'Direk tipi ve görevine uygun dikim kontrolü.', children: [
+            { id: 'pole-plumb', label: 'Direk şakülü', legacyIds: ['plumb'] },
+            { id: 'pole-direction', label: 'Direk yönü' },
+            { id: 'embedment', label: 'Dikim derinliği' },
+            { id: 'pole-type', label: 'Direk tipi' },
+            { id: 'pole-position', label: 'Direk konumu' },
+            { id: 'pole-damage', label: 'Direk gövdesinde hasar kontrolü' },
+            { id: 'pole-number', label: 'Direk numarası' }
+          ] },
+          { id: 'concrete', label: 'Betonlama', technicalNote: 'Betonlama durumu. Yarım Beton otomatik olarak uygunsuz sayılır.', completionStatuses: [
+            { id: 'DONE', label: 'Yapıldı' }, { id: 'PARTIAL', label: 'Yarım Beton' }, { id: 'NOT_DONE', label: 'Yapılmadı' }
+          ] },
           { id: 'foundation', label: 'Temel ölçüsü', technicalNote: 'Temel ölçüsü ve donatının proje ile uyumu.' },
-          { id: 'embedment', label: 'Dikim derinliği', technicalNote: 'Direk gömme derinliği.' },
-          { id: 'plumb', label: 'Şakül', technicalNote: 'Direğin düşey doğrultusu.' },
-          { id: 'concrete', label: 'Beton', technicalNote: 'Beton kalitesi, yüzeyi ve kür durumu.' }
+          { id: 'concrete-materials', label: 'Beton malzemesi', technicalNote: 'Beton kalitesi, yüzeyi ve kür durumu.' }
         ] },
         { id: 'equipment', label: 'Konsol ve bağlantılar', items: [
           { id: 'bracket', label: 'Konsol', technicalNote: 'Konsolun mevcut ve sabit olması.' },

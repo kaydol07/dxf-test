@@ -54,3 +54,21 @@ Existing `field_records`, packages with `schemaVersion: 1`, and the old `ERSKSİ
 ## Current setup state
 
 The `dxf-saha` Supabase project has been created, its schema and row-level security rules have been applied, and the `yandex-projects` Edge Function has been deployed. The Supabase URL and public publishable key are configured in `supabase-config.js` in this working copy. The function needs `YANDEX_DISK_OAUTH_TOKEN`; create Auth users, assign their profiles, then apply every migration in filename order. The changed app files need to be published to GitHub Pages before the public site uses this backend.
+
+## Field-quality branch deployment checklist
+
+This branch adds the `PARTIAL` (Yarım Beton) completion state and optional
+compressed photo previews. Before publishing this branch to GitHub Pages:
+
+1. Apply `20261017090000_attachment_previews.sql` in the Supabase SQL editor.
+   It preserves existing attachments and only adds the optional `preview_path`
+   column plus backward-compatible status and element-type constraints.
+2. Deploy `manage-contractor-password` from this repository. The browser
+   message “Şifre servisine ulaşılamadı” means this function is not reachable;
+   it does not expose a password.
+3. In Edge Function Secrets set `APP_ALLOWED_ORIGINS` to a comma-separated
+   list containing `https://kaydol07.github.io` and any approved local preview
+   origins. Supabase's server-managed `SUPABASE_SERVICE_ROLE_KEY` remains
+   server-side; never copy it into browser configuration.
+4. Sign in with BEDA and verify the password panel against a designated test
+   contractor account. Do not test by changing a real contractor password.

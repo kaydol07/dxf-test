@@ -1,13 +1,17 @@
-const map=L.map('map',{zoomControl:false,preferCanvas:true}).setView([39.05,35.35],5);
+/* Every base map and DXF overlay uses Leaflet's EPSG:3857 view.  Esri World
+   Imagery has native tiles through level 19; keeping the view at that ceiling
+   prevents requests for empty tiles while vectors remain on the same map. */
+const MAP_MAX_ZOOM=19;
+const map=L.map('map',{zoomControl:false,preferCanvas:true,maxZoom:MAP_MAX_ZOOM}).setView([39.05,35.35],5);
 const zoomControl=L.control.zoom({position:'bottomright'}).addTo(map);
 const bases={
-  satellite:L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{attribution:'Tiles © Esri',maxZoom:19}),
-  street:L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'© OpenStreetMap contributors',maxZoom:19}),
-  dark:L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{attribution:'© OpenStreetMap © CARTO',maxZoom:20}),
-  light:L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',{attribution:'© OpenStreetMap © CARTO',maxZoom:20})
+  satellite:L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{attribution:'Tiles © Esri',maxNativeZoom:19,maxZoom:MAP_MAX_ZOOM}),
+  street:L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'© OpenStreetMap contributors',maxNativeZoom:19,maxZoom:MAP_MAX_ZOOM}),
+  dark:L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{attribution:'© OpenStreetMap © CARTO',maxNativeZoom:19,maxZoom:MAP_MAX_ZOOM}),
+  light:L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',{attribution:'© OpenStreetMap © CARTO',maxNativeZoom:19,maxZoom:MAP_MAX_ZOOM})
 };
 bases.satellite.addTo(map);
-let labelLayer=L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager_only_labels/{z}/{x}/{y}{r}.png',{attribution:'',maxZoom:20,pane:'overlayPane'}).addTo(map);
+let labelLayer=L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager_only_labels/{z}/{x}/{y}{r}.png',{attribution:'',maxNativeZoom:19,maxZoom:MAP_MAX_ZOOM,pane:'overlayPane'}).addTo(map);
 const panels=['projectPanel','inspectionPanel','locationPanel','accountPanel','addressPanel','parcelPanel'];
 function keepMapVisible(){if(canViewInspectionData()){if(!map.hasLayer(inspectionMarkerLayer))inspectionMarkerLayer.addTo(map)}else{inspectionMarkerLayer.clearLayers();if(map.hasLayer(inspectionMarkerLayer))map.removeLayer(inspectionMarkerLayer)}}
 function openPanel(id){panels.forEach(p=>document.getElementById(p).hidden=p!==id||!document.getElementById(p).hidden);document.querySelectorAll('.toolbar [data-panel]').forEach(b=>b.classList.toggle('active',b.dataset.panel===id&&!document.getElementById(id).hidden));keepMapVisible();}
@@ -19,7 +23,7 @@ const googleMapBase=document.createElement('div');
 googleMapBase.id='googleMapBase';googleMapBase.hidden=true;document.getElementById('map').append(googleMapBase);
 let googleMap=null,googleMapsApiPromise=null,googleMapSync=null;
 function disableGoogleMap(){
-  if(googleMapSync){map.off('moveend zoomend',googleMapSync);googleMapSync=null}
+  if(googleMapSync){map.off('move zoom moveend zoomend',googleMapSync);googleMapSync=null}
   googleMap=null;googleMapBase.replaceChildren();googleMapBase.hidden=true;
   document.body.classList.remove('google-map-active');
   document.getElementById('labelsToggle').disabled=false;
@@ -64,9 +68,11 @@ async function enableGoogleSatellite(){
     document.getElementById('labelsToggle').disabled=true;
     map.attributionControl.remove();zoomControl.getContainer().hidden=true;
     googleMapBase.hidden=false;document.body.classList.add('google-map-active');
-    googleMap=new google.maps.Map(googleMapBase,{center:map.getCenter(),zoom:map.getZoom(),mapTypeId:'satellite',disableDefaultUI:true,gestureHandling:'none',keyboardShortcuts:false,clickableIcons:false});
-    googleMapSync=()=>googleMap?.moveCamera({center:map.getCenter(),zoom:map.getZoom()});
-    map.on('moveend zoomend',googleMapSync);
+    googleMap=new google.maps.Map(googleMapBase,{center:map.getCenter(),zoom:Math.min(map.getZoom(),MAP_MAX_ZOOM),mapTypeId:'satellite',disableDefaultUI:true,gestureHandling:'none',keyboardShortcuts:false,clickableIcons:false,maxZoom:MAP_MAX_ZOOM});
+    /* Synchronise while Leaflet is moving, not only after it stops. This
+       prevents the Google base and DXF overlay appearing to drift apart. */
+    googleMapSync=()=>googleMap?.moveCamera({center:map.getCenter(),zoom:Math.min(map.getZoom(),MAP_MAX_ZOOM)});
+    map.on('move zoom moveend zoomend',googleMapSync);
     layersPanel.hidden=true;
     status.textContent='Google Uydu açık. Anahtar yalnızca bu sekmenin belleğinde kullanılıyor; sayfayı yenileyince yeniden girmeniz gerekir.';
   }catch(error){
@@ -483,6 +489,7 @@ let generatedProjectBundleUrl = null, generatedProjectBundleBlob = null;
 const FIELD_CONTRACTORS = ['ERKSİS', 'ASTAN', 'ASMİN', 'ERBU', 'AZRAM'];
 function normalizeContractorCode(value) { return value === 'ERSKSİS' ? 'ERKSİS' : value; }
 const INSPECTION_CONFIG = window.DXF_INSPECTION_CONFIG || { version: 1, settings: { inspectionIntervalMeters: 5, progressEnabled: true }, checklists: {}, theme: {} };
+const INSPECTION_RULES = window.DXF_INSPECTION_RULES || { childCompletionStatus: value => value === 'DONE' ? 'DONE' : 'NOT_DONE', parentQualityStatus: (completion, children, current) => completion === 'PARTIAL' ? 'NON_COMPLIANT' : completion !== 'DONE' ? 'NOT_CHECKED' : children?.includes('NON_COMPLIANT') ? 'NON_COMPLIANT' : children?.length && children.every(value => value === 'COMPLIANT') ? 'COMPLIANT' : current };
 const inspectionMarkerLayer = L.layerGroup();
 const inspectionObjectUrls = new Set();
 let inspectionPickType = null;
@@ -647,7 +654,14 @@ async function updateContractorPassword() {
   contractorPasswordSave.disabled = true; contractorPasswordMessage.textContent = 'Şifre güncelleniyor…';
   try {
     const { data, error } = await supabaseClient.functions.invoke('manage-contractor-password', { body: { contractorCode, password } });
-    if (error) throw error;
+    if (error) {
+      let detail = '';
+      try { const body = await error.context?.clone?.().json(); detail = body?.error ? String(body.error) : ''; } catch {}
+      if (/Failed to send a request|fetch/i.test(error.message || '')) {
+        throw new Error('Şifre servisine ulaşılamadı. Supabase’te manage-contractor-password fonksiyonunun dağıtıldığını ve APP_ALLOWED_ORIGINS içinde https://kaydol07.github.io adresinin bulunduğunu kontrol edin.');
+      }
+      throw new Error(detail || error.message || 'Şifre güncellenemedi.');
+    }
     if (!data?.ok) throw new Error(data?.error || 'Şifre güncellenemedi.');
     contractorNewPassword.value = ''; contractorConfirmPassword.value = '';
     contractorPasswordMessage.textContent = `${contractorCode} hesabının şifresi güncellendi.`;
@@ -1694,10 +1708,53 @@ const inspectionPhotoViewer = document.getElementById('inspectionPhotoViewer');
 const inspectionPhotoViewerImage = document.getElementById('inspectionPhotoViewerImage');
 const inspectionPhotoViewerCaption = document.getElementById('inspectionPhotoViewerCaption');
 const inspectionPhotoViewerClose = document.getElementById('inspectionPhotoViewerClose');
+const inspectionPhotoZoomOut = document.getElementById('inspectionPhotoZoomOut');
+const inspectionPhotoZoomReset = document.getElementById('inspectionPhotoZoomReset');
+const inspectionPhotoZoomIn = document.getElementById('inspectionPhotoZoomIn');
+const inspectionPhotoFullscreen = document.getElementById('inspectionPhotoFullscreen');
+const inspectionUploadProgress = document.getElementById('inspectionUploadProgress');
+const inspectionUploadProgressText = document.getElementById('inspectionUploadProgressText');
+const inspectionUploadProgressValue = document.getElementById('inspectionUploadProgressValue');
 const pendingInspectionPhotoUrls = new Set();
+let inspectionPhotoZoom = 1;
 
 function emptyInspectionState(projectId = activeProjectId) {
   return { projectId, elements: new Map(), points: [], results: [], nonconformities: [], events: [], attachments: [], localOnly: !backendEnabled };
+}
+function setInspectionUploadProgress(value, text) {
+  if (!inspectionUploadProgress) return;
+  const percentage = Math.max(0, Math.min(100, Math.round(Number(value) || 0)));
+  inspectionUploadProgress.hidden = percentage >= 100;
+  inspectionUploadProgressValue.value = percentage;
+  inspectionUploadProgressText.textContent = text || `Fotoğraf yükleniyor · %${percentage}`;
+}
+async function makeInspectionThumbnail(file) {
+  if (!file || !/^image\//i.test(file.type || '')) return null;
+  const sourceUrl = URL.createObjectURL(file);
+  try {
+    const image = new Image(); image.decoding = 'async';
+    await new Promise((resolve, reject) => { image.onload = resolve; image.onerror = reject; image.src = sourceUrl; });
+    const maxEdge = 480, ratio = Math.min(1, maxEdge / Math.max(image.naturalWidth || 1, image.naturalHeight || 1));
+    const canvas = document.createElement('canvas'); canvas.width = Math.max(1, Math.round((image.naturalWidth || 1) * ratio)); canvas.height = Math.max(1, Math.round((image.naturalHeight || 1) * ratio));
+    canvas.getContext('2d', { alpha: false })?.drawImage(image, 0, 0, canvas.width, canvas.height);
+    return await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', .78));
+  } finally { URL.revokeObjectURL(sourceUrl); }
+}
+async function uploadInspectionBlob(path, blob, onProgress) {
+  const { data: sessionData } = await supabaseClient.auth.getSession();
+  const token = sessionData?.session?.access_token;
+  if (!token) throw new Error('Fotoğraf yüklemek için oturumun yeniden açılması gerekiyor.');
+  const encodedPath = String(path).split('/').map(encodeURIComponent).join('/');
+  const endpoint = `${supabaseConfig.url.replace(/\/$/, '')}/storage/v1/object/inspection-photos/${encodedPath}`;
+  await new Promise((resolve, reject) => {
+    const request = new XMLHttpRequest(); request.open('POST', endpoint, true);
+    request.setRequestHeader('Authorization', `Bearer ${token}`); request.setRequestHeader('apikey', supabaseConfig.publishableKey);
+    request.setRequestHeader('x-upsert', 'true'); request.setRequestHeader('Content-Type', blob.type || 'application/octet-stream');
+    request.upload.onprogress = event => { if (event.lengthComputable) onProgress?.(event.loaded / event.total); };
+    request.onerror = () => reject(new Error('Fotoğraf yüklenemedi. Bağlantıyı kontrol edip yeniden dene.'));
+    request.onload = () => request.status >= 200 && request.status < 300 ? resolve() : reject(new Error(`Fotoğraf yüklenemedi (HTTP ${request.status}).`));
+    request.send(blob);
+  });
 }
 // The transposition checklist has only a neutral record item for now. Its
 // technical checklist is deliberately kept out of this change set.
@@ -1711,7 +1768,10 @@ function inspectionChecklistFor(target = selectedInspectionTarget) {
   return INSPECTION_CONFIG.checklists?.[pointType === 'underground' ? 'underground' : 'pole'] || null;
 }
 function inspectionItems(checklist) {
-  return (checklist?.groups || []).flatMap(group => (group.items || []).map(item => ({ ...item, groupId: group.id, groupLabel: group.label })));
+  return (checklist?.groups || []).flatMap(group => (group.items || []).flatMap(item => [
+    { ...item, groupId: group.id, groupLabel: group.label, parentId: null, isParent: Boolean(item.children?.length) },
+    ...(item.children || []).map(child => ({ ...child, groupId: group.id, groupLabel: group.label, parentId: item.id, isChild: true }))
+  ]));
 }
 function renderChecklistItemPhotoGallery(container, result) {
   container.replaceChildren();
@@ -1720,7 +1780,7 @@ function renderChecklistItemPhotoGallery(container, result) {
   for (const attachment of attachments) {
     const figure = document.createElement('figure'); const caption = document.createElement('figcaption');
     caption.textContent = attachment.stage === 'after' ? 'SONRA' : 'ÖNCE'; figure.append(caption);
-    void inspectionAttachmentUrl(attachment).then(url => {
+    void inspectionAttachmentUrl(attachment, true).then(url => {
       if (!url) return;
       const view = document.createElement('button'); view.type = 'button'; view.className = 'inspection-photo-view'; view.title = 'Büyük görüntüle';
       const image = document.createElement('img'); image.src = url; image.alt = `${caption.textContent} · ${attachment.fileName || 'fotoğraf'}`;
@@ -1729,6 +1789,7 @@ function renderChecklistItemPhotoGallery(container, result) {
     if (isBedaEditor()) {
       const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'inspection-photo-remove'; remove.textContent = 'KALDIR';
       remove.addEventListener('click', () => { void deleteInspectionAttachment(attachment); }); figure.append(remove);
+      if (attachment.uploadState === 'failed') { const retry = document.createElement('button'); retry.type = 'button'; retry.className = 'inspection-photo-remove'; retry.textContent = 'YENİDEN DENE'; retry.addEventListener('click', () => { void retryInspectionAttachment(attachment); }); figure.append(retry); }
     }
     container.append(figure);
   }
@@ -1828,16 +1889,29 @@ function renderInspectionSummary() {
     strong.textContent = String(value); span.textContent = label; card.append(strong, span); inspectionSummary.append(card);
   }
 }
+function inspectionResultForItem(point, item) {
+  const ids = [item.id, ...(item.legacyIds || [])];
+  return inspectionState.results.find(result => result.pointId === point?.id && ids.includes(result.checklistItemId));
+}
+function completionOptionsFor(item) { return item.completionStatuses || INSPECTION_CONFIG.completionStatuses || []; }
+function makeChecklistPhotoControls(item, current) {
+  const itemPhotos = document.createElement('div'); itemPhotos.className = 'checklist-item-photos'; renderChecklistItemPhotoGallery(itemPhotos, current);
+  const photoControls = document.createElement('div'); photoControls.className = 'checklist-item-photo';
+  const photoInput = document.createElement('input'); photoInput.type = 'file'; photoInput.accept = 'image/*'; photoInput.multiple = true; photoInput.dataset.checklistPhoto = item.id;
+  photoInput.setAttribute('aria-label', `${item.label} fotoğrafları`);
+  const photoStage = document.createElement('select'); photoStage.dataset.checklistPhotoStage = item.id; photoStage.setAttribute('aria-label', `${item.label} fotoğraf türü`);
+  photoStage.append(new Option('ÖNCE', 'before'), new Option('SONRA', 'after')); photoControls.append(photoInput, photoStage);
+  return [itemPhotos, photoControls];
+}
 function renderInspectionChecklist() {
-  inspectionChecklist.replaceChildren();
-  const checklist = inspectionChecklistFor();
+  inspectionChecklist.replaceChildren(); const checklist = inspectionChecklistFor();
   if (!selectedInspectionTarget || !checklist) return;
   const point = inspectionPointForTarget(selectedInspectionTarget);
   for (const group of checklist.groups || []) {
     const block = document.createElement('section'); block.className = 'checklist-group';
     const heading = document.createElement('strong'); heading.textContent = group.label; block.append(heading);
     for (const item of group.items || []) {
-      const current = inspectionState.results.find(result => result.pointId === point?.id && result.checklistItemId === item.id);
+      const current = inspectionResultForItem(point, item);
       const row = document.createElement('div'); row.className = 'checklist-item'; row.dataset.itemId = item.id;
       const label = document.createElement('div'); label.className = 'checklist-item-label';
       const title = document.createElement('span'); title.textContent = item.label;
@@ -1847,45 +1921,61 @@ function renderInspectionChecklist() {
       reference.addEventListener('click', () => { help.hidden = !help.hidden; }); label.append(title, reference);
       const controls = document.createElement('div'); controls.className = 'checklist-item-controls';
       const completion = document.createElement('select'); completion.dataset.completion = item.id; completion.setAttribute('aria-label', `${item.label} imalat durumu`);
-      for (const status of INSPECTION_CONFIG.completionStatuses || []) { const option = document.createElement('option'); option.value = status.id; option.textContent = status.label; completion.append(option); }
+      for (const status of completionOptionsFor(item)) completion.append(new Option(status.label, status.id));
       completion.value = current?.completionStatus || 'NOT_DONE';
       const quality = document.createElement('select'); quality.dataset.quality = item.id; quality.setAttribute('aria-label', `${item.label} kalite durumu`);
-      for (const status of INSPECTION_CONFIG.qualityStatuses || []) { const option = document.createElement('option'); option.value = status.id; option.textContent = status.label; quality.append(option); }
-      quality.value = current?.qualityStatus || 'NOT_CHECKED';
-      const syncQuality = () => { quality.disabled = completion.value !== 'DONE'; if (quality.disabled) quality.value = 'NOT_CHECKED'; };
-      completion.addEventListener('change', syncQuality); syncQuality(); controls.append(completion, quality);
-      const itemPhotos = document.createElement('div'); itemPhotos.className = 'checklist-item-photos';
-      renderChecklistItemPhotoGallery(itemPhotos, current);
-      const photoControls = document.createElement('div'); photoControls.className = 'checklist-item-photo';
-      const photoInput = document.createElement('input'); photoInput.type = 'file'; photoInput.accept = 'image/*'; photoInput.multiple = true; photoInput.dataset.checklistPhoto = item.id;
-      photoInput.setAttribute('aria-label', `${item.label} fotoğrafları`);
-      const photoStage = document.createElement('select'); photoStage.dataset.checklistPhotoStage = item.id; photoStage.setAttribute('aria-label', `${item.label} fotoğraf türü`);
-      photoStage.append(new Option('ÖNCE', 'before'), new Option('SONRA', 'after'));
-      photoControls.append(photoInput, photoStage);
-      row.append(label, controls, help, itemPhotos, photoControls); block.append(row);
+      for (const status of INSPECTION_CONFIG.qualityStatuses || []) quality.append(new Option(status.label, status.id));
+      quality.value = current?.qualityStatus || 'NOT_CHECKED'; controls.append(completion, quality);
+      row.append(label, controls, help);
+      const children = item.children || [], childBox = document.createElement('div'); childBox.className = 'checklist-children';
+      const childQualities = [];
+      for (const child of children) {
+        const childCurrent = inspectionResultForItem(point, child);
+        const childRow = document.createElement('div'); childRow.className = 'checklist-subitem'; childRow.dataset.itemId = child.id;
+        const childTitle = document.createElement('label'); childTitle.textContent = child.label; childTitle.htmlFor = `quality-${item.id}-${child.id}`;
+        const childQuality = document.createElement('select'); childQuality.id = childTitle.htmlFor; childQuality.dataset.quality = child.id; childQuality.dataset.childOf = item.id;
+        childQuality.setAttribute('aria-label', `${child.label} uygunluk durumu`);
+        for (const status of INSPECTION_CONFIG.qualityStatuses || []) childQuality.append(new Option(status.label, status.id));
+        childQuality.value = childCurrent?.qualityStatus || 'NOT_CHECKED'; childQualities.push(childQuality);
+        const childPhotos = makeChecklistPhotoControls(child, childCurrent); childRow.append(childTitle, childQuality, ...childPhotos); childBox.append(childRow);
+      }
+      const syncParent = () => {
+        const isDone = completion.value === 'DONE'; const isPartial = completion.value === 'PARTIAL';
+        childBox.hidden = !isDone; quality.disabled = !isDone || isPartial;
+        quality.value = INSPECTION_RULES.parentQualityStatus(completion.value, childQualities.map(select => select.value), quality.value);
+        childQualities.forEach(select => { select.disabled = !isDone; });
+      };
+      completion.addEventListener('change', syncParent);
+      quality.addEventListener('change', () => { if (quality.value === 'COMPLIANT') childQualities.forEach(select => { select.value = 'COMPLIANT'; }); syncParent(); });
+      childQualities.forEach(select => select.addEventListener('change', syncParent)); syncParent();
+      if (children.length) row.append(childBox); else row.append(...makeChecklistPhotoControls(item, current));
+      block.append(row);
     }
     inspectionChecklist.append(block);
   }
 }
-async function inspectionAttachmentUrl(attachment) {
+async function inspectionAttachmentUrl(attachment, preview = false) {
   if (attachment.blob) {
     const url = URL.createObjectURL(attachment.blob); inspectionObjectUrls.add(url); return url;
   }
-  if (!backendEnabled || !attachment.storagePath) return null;
-  const { data, error } = await supabaseClient.storage.from('inspection-photos').createSignedUrl(attachment.storagePath, 900);
+  const path = preview ? attachment.previewPath || attachment.storagePath : attachment.storagePath;
+  if (!backendEnabled || !path) return null;
+  const { data, error } = await supabaseClient.storage.from('inspection-photos').createSignedUrl(path, 900);
   if (error) return null;
   return data?.signedUrl || null;
 }
+function renderInspectionPhotoZoom() { inspectionPhotoViewerImage.style.transform = `scale(${inspectionPhotoZoom})`; }
 async function openInspectionPhotoViewer(attachment) {
   inspectionPhotoViewerImage.removeAttribute('src');
   inspectionPhotoViewerImage.alt = attachment.fileName || 'Denetim fotoğrafı';
   inspectionPhotoViewerCaption.textContent = `${attachment.stage === 'after' ? 'SONRA' : 'ÖNCE'} · ${attachment.fileName || 'Fotoğraf'}`;
+  inspectionPhotoZoom = 1; renderInspectionPhotoZoom();
   inspectionPhotoViewer.hidden = false;
   const url = await inspectionAttachmentUrl(attachment);
   if (!url) { inspectionPhotoViewerCaption.textContent = 'Fotoğraf açılamadı.'; return; }
   inspectionPhotoViewerImage.src = url;
 }
-function closeInspectionPhotoViewer() { inspectionPhotoViewer.hidden = true; inspectionPhotoViewerImage.removeAttribute('src'); }
+function closeInspectionPhotoViewer() { inspectionPhotoViewer.hidden = true; inspectionPhotoViewerImage.removeAttribute('src'); inspectionPhotoZoom = 1; renderInspectionPhotoZoom(); }
 function renderInspectionHistory() {
   inspectionHistory.replaceChildren();
   const point = inspectionPointForTarget();
@@ -1899,7 +1989,7 @@ function renderInspectionHistory() {
     for (const attachment of pointAttachments) {
       const figure = document.createElement('figure'); const caption = document.createElement('figcaption');
       caption.textContent = attachment.stage === 'after' ? 'SONRA' : 'ÖNCE'; figure.append(caption);
-      void inspectionAttachmentUrl(attachment).then(url => {
+      void inspectionAttachmentUrl(attachment, true).then(url => {
         if (!url) return;
         const view = document.createElement('button'); view.type = 'button'; view.className = 'inspection-photo-view'; view.title = 'Büyük görüntüle';
         const image = document.createElement('img'); image.src = url; image.alt = `${caption.textContent} · ${attachment.fileName || 'fotoğraf'}`; view.append(image);
@@ -1908,6 +1998,7 @@ function renderInspectionHistory() {
       if (isBedaEditor()) {
         const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'inspection-photo-remove'; remove.textContent = 'FOTOĞRAFI KALDIR';
         remove.addEventListener('click', () => { void deleteInspectionAttachment(attachment); }); figure.append(remove);
+        if (attachment.uploadState === 'failed') { const retry = document.createElement('button'); retry.type = 'button'; retry.className = 'inspection-photo-remove'; retry.textContent = 'YENİDEN DENE'; retry.addEventListener('click', () => { void retryInspectionAttachment(attachment); }); figure.append(retry); }
       }
       gallery.append(figure);
     }
@@ -1929,7 +2020,7 @@ function renderInspectionHistory() {
       for (const attachment of related) {
         const figure = document.createElement('figure'); const caption = document.createElement('figcaption');
         caption.textContent = attachment.stage === 'after' ? 'SONRA' : 'ÖNCE'; figure.append(caption);
-        void inspectionAttachmentUrl(attachment).then(url => {
+        void inspectionAttachmentUrl(attachment, true).then(url => {
           if (!url) return;
           const view = document.createElement('button'); view.type = 'button'; view.className = 'inspection-photo-view'; view.title = 'Büyük görüntüle';
           const image = document.createElement('img'); image.src = url; image.alt = `${caption.textContent} fotoğrafı`; view.append(image);
@@ -1938,6 +2029,7 @@ function renderInspectionHistory() {
         if (isBedaEditor()) {
           const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'inspection-photo-remove'; remove.textContent = 'FOTOĞRAFI KALDIR';
           remove.addEventListener('click', () => { void deleteInspectionAttachment(attachment); }); figure.append(remove);
+          if (attachment.uploadState === 'failed') { const retry = document.createElement('button'); retry.type = 'button'; retry.className = 'inspection-photo-remove'; retry.textContent = 'YENİDEN DENE'; retry.addEventListener('click', () => { void retryInspectionAttachment(attachment); }); figure.append(retry); }
         }
         photos.append(figure);
       }
@@ -2049,7 +2141,7 @@ function projectRowsToInspection(data) {
     results: (data.results || []).map(row => ({ id: row.id, pointId: row.inspection_point_id, elementId: row.element_id, checklistId: row.checklist_id, checklistItemId: row.checklist_item_id, completionStatus: row.completion_status, qualityStatus: row.quality_status, note: row.note || '', referenceSnapshot: row.reference_snapshot || {}, createdAt: row.created_at, updatedAt: row.updated_at })),
     nonconformities: (data.nonconformities || []).map(row => ({ id: row.id, pointId: row.inspection_point_id, elementId: row.element_id, checklistItemId: row.checklist_item_id, contractorCode: row.contractor_code, description: row.description, lat: row.lat, lon: row.lon, state: row.state, createdAt: row.created_at, updatedAt: row.updated_at })),
     events: (data.events || []).map(row => ({ id: row.id, nonconformityId: row.nonconformity_id, eventType: row.event_type, note: row.note, previousState: row.previous_state, nextState: row.next_state, createdAt: row.created_at })),
-    attachments: (data.attachments || []).map(row => ({ id: row.id, nonconformityId: row.nonconformity_id, resultId: row.inspection_result_id, stage: row.stage, storagePath: row.storage_path, fileName: row.file_name, mimeType: row.mime_type, createdAt: row.created_at }))
+    attachments: (data.attachments || []).map(row => ({ id: row.id, nonconformityId: row.nonconformity_id, resultId: row.inspection_result_id, stage: row.stage, storagePath: row.storage_path, previewPath: row.preview_path || null, fileName: row.file_name, mimeType: row.mime_type, createdAt: row.created_at }))
   };
 }
 async function refreshInspectionData() {
@@ -2197,22 +2289,39 @@ async function persistNonconformity(record, eventType = null, previousState = nu
 }
 async function addInspectionAttachment(file, nonconformity, result, stage = inspectionPhotoStage.value) {
   if (!file) return;
-  const attachment = { id: makeRecordId(), nonconformityId: nonconformity?.id || null, resultId: result?.id || null, stage: stage === 'after' ? 'after' : 'before', fileName: file.name, mimeType: file.type, createdAt: new Date().toISOString(), blob: file };
+  const attachment = { id: makeRecordId(), nonconformityId: nonconformity?.id || null, resultId: result?.id || null, stage: stage === 'after' ? 'after' : 'before', fileName: file.name, mimeType: file.type, createdAt: new Date().toISOString(), blob: file, uploadState: 'pending' };
   if (!backendEnabled || !isBedaEditor()) { inspectionState.attachments.push(attachment); inspectionState.localOnly = true; await persistLocalInspectionState(); return; }
-  await persistInspectionAttachment(attachment);
   inspectionState.attachments.push(attachment);
+  try { await persistInspectionAttachment(attachment); }
+  catch (error) {
+    attachment.uploadState = 'failed'; attachment.uploadError = error?.message || 'Fotoğraf yüklenemedi.';
+    await persistLocalInspectionState(); renderInspectionDashboard();
+  }
 }
 async function persistInspectionAttachment(attachment) {
   if (!backendEnabled || !isBedaEditor()) { inspectionState.localOnly = true; await persistLocalInspectionState(); return; }
   const owner = attachment.nonconformityId || attachment.resultId || attachment.id;
   attachment.storagePath ||= `${activeProjectId}/${owner}/${safeFileName(attachment.id)}-${safeFileName(attachment.fileName || 'foto.jpg')}`;
   if (attachment.blob) {
-    const { error: uploadError } = await supabaseClient.storage.from('inspection-photos').upload(attachment.storagePath, attachment.blob, { upsert: true, contentType: attachment.mimeType || attachment.blob.type || 'application/octet-stream' });
-    if (uploadError) throw uploadError;
+    attachment.uploadState = 'uploading'; setInspectionUploadProgress(4, 'Önizleme hazırlanıyor · %4');
+    const preview = attachment.previewBlob || await makeInspectionThumbnail(attachment.blob);
+    if (preview) {
+      attachment.previewPath ||= `${activeProjectId}/${owner}/${safeFileName(attachment.id)}-preview.jpg`;
+      setInspectionUploadProgress(8, 'Küçük önizleme yükleniyor · %8');
+      await uploadInspectionBlob(attachment.previewPath, preview, fraction => setInspectionUploadProgress(8 + fraction * 12, `Küçük önizleme yükleniyor · %${Math.round(8 + fraction * 12)}`));
+      delete attachment.previewBlob;
+    }
+    setInspectionUploadProgress(20, 'Orijinal fotoğraf yükleniyor · %20');
+    await uploadInspectionBlob(attachment.storagePath, attachment.blob, fraction => setInspectionUploadProgress(20 + fraction * 78, `Orijinal fotoğraf yükleniyor · %${Math.round(20 + fraction * 78)}`));
   }
-  const { error } = await supabaseClient.from('inspection_attachments').upsert({ id: attachment.id, project_id: activeProjectId, nonconformity_id: attachment.nonconformityId, inspection_result_id: attachment.resultId, stage: attachment.stage, storage_path: attachment.storagePath, file_name: attachment.fileName, mime_type: attachment.mimeType, created_by: authenticatedProfile.user_id }, { onConflict: 'id' });
+  const { error } = await supabaseClient.from('inspection_attachments').upsert({ id: attachment.id, project_id: activeProjectId, nonconformity_id: attachment.nonconformityId, inspection_result_id: attachment.resultId, stage: attachment.stage, storage_path: attachment.storagePath, preview_path: attachment.previewPath || null, file_name: attachment.fileName, mime_type: attachment.mimeType, created_by: authenticatedProfile.user_id }, { onConflict: 'id' });
   if (error) throw error;
-  delete attachment.blob;
+  attachment.uploadState = 'complete'; delete attachment.uploadError; delete attachment.blob; setInspectionUploadProgress(100, 'Fotoğraf yüklendi · %100');
+}
+async function retryInspectionAttachment(attachment) {
+  if (!attachment?.blob) { showToast('Bu fotoğrafın yerel yükleme verisi bulunamadı. Galeriden yeniden seçin.'); return; }
+  try { await persistInspectionAttachment(attachment); await persistLocalInspectionState(); renderInspectionDashboard(); showToast('Fotoğraf yüklendi.'); }
+  catch (error) { attachment.uploadState = 'failed'; attachment.uploadError = error?.message || 'Fotoğraf yüklenemedi.'; await persistLocalInspectionState(); renderInspectionDashboard(); showToast(attachment.uploadError); }
 }
 async function deleteInspectionAttachment(attachment) {
   if (!isBedaEditor()) { showToast('Fotoğraf kaldırma yetkisi yalnızca BEDA hesabında.'); return; }
@@ -2224,8 +2333,9 @@ async function deleteInspectionAttachment(attachment) {
     if (backendEnabled) {
       const { error } = await supabaseClient.from('inspection_attachments').delete().eq('id', attachment.id);
       if (error) throw error;
-      if (attachment.storagePath) {
-        const { error: storageError } = await supabaseClient.storage.from('inspection-photos').remove([attachment.storagePath]);
+      if (attachment.storagePath || attachment.previewPath) {
+        const paths = [attachment.storagePath, attachment.previewPath].filter(Boolean);
+        const { error: storageError } = await supabaseClient.storage.from('inspection-photos').remove(paths);
         if (storageError) console.warn('Silinen denetim fotoğrafı depodan kaldırılamadı:', storageError);
       }
     }
@@ -2238,9 +2348,12 @@ async function saveSelectedInspection() {
   if (!isBedaEditor()) { showToast('Checklist kaydetme yetkisi yalnızca BEDA hesabında.'); return; }
   const point = await ensureSelectedInspectionPoint(); const checklist = inspectionChecklistFor();
   if (!checklist) throw new Error('Bu kontrol noktası için checklist bulunamadı.');
-  const entries = inspectionItems(checklist).map(item => {
-    const completion = inspectionChecklist.querySelector(`[data-completion="${item.id}"]`)?.value || 'NOT_DONE';
-    const quality = completion === 'DONE' ? inspectionChecklist.querySelector(`[data-quality="${item.id}"]`)?.value || 'NOT_CHECKED' : 'NOT_CHECKED';
+  const items = inspectionItems(checklist);
+  const entries = items.map(item => {
+    const parentCompletion = item.parentId ? inspectionChecklist.querySelector(`[data-completion="${item.parentId}"]`)?.value : null;
+    const completion = item.isChild ? INSPECTION_RULES.childCompletionStatus(parentCompletion) : inspectionChecklist.querySelector(`[data-completion="${item.id}"]`)?.value || 'NOT_DONE';
+    let quality = completion === 'DONE' ? inspectionChecklist.querySelector(`[data-quality="${item.id}"]`)?.value || 'NOT_CHECKED' : 'NOT_CHECKED';
+    if (completion === 'PARTIAL') quality = 'NON_COMPLIANT';
     return { item, completion, quality };
   });
   if (entries.some(entry => entry.quality === 'NON_COMPLIANT') && !inspectionNote.value.trim()) throw new Error('Uygunsuz imalat için açıklama gir.');
@@ -2251,13 +2364,19 @@ async function saveSelectedInspection() {
     if (existing) Object.assign(existing, result); else inspectionState.results.push(result);
     await persistInspectionResult(result);
     resultsByItem.set(entry.item.id, result);
-    if (entry.quality === 'NON_COMPLIANT') {
+    if (entry.quality === 'NON_COMPLIANT' && !entry.item.children?.length) {
       let nonconformity = inspectionState.nonconformities.find(item => item.pointId === point.id && item.checklistItemId === entry.item.id && item.state !== 'closed');
       if (!nonconformity) {
         nonconformity = { id: makeRecordId(), pointId: point.id, elementId: point.elementId || null, checklistItemId: entry.item.id, contractorCode: projectContractorCode(), description: inspectionNote.value.trim(), lat: point.lat, lon: point.lon, state: 'active', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
         inspectionState.nonconformities.push(nonconformity); await persistNonconformity(nonconformity, 'created');
       }
       nonconformitiesByItem.set(entry.item.id, nonconformity);
+    } else if (entry.quality !== 'NON_COMPLIANT') {
+      const resolved = inspectionState.nonconformities.find(item => item.pointId === point.id && item.checklistItemId === entry.item.id && item.state !== 'closed');
+      if (resolved) {
+        const previousState = resolved.state; resolved.state = 'closed'; resolved.updatedAt = new Date().toISOString();
+        await persistNonconformity(resolved, 'resolved_by_checklist', previousState);
+      }
     }
   }
   const itemPhotoInputs = Array.from(inspectionChecklist.querySelectorAll('input[data-checklist-photo]'));
@@ -2350,6 +2469,13 @@ inspectionPhotoInput.addEventListener('change', renderInspectionPhotoSelection);
 deleteManualInspectionPointButton.addEventListener('click', () => { void archiveSelectedManualInspectionPoint(); });
 inspectionPhotoViewerClose.addEventListener('click', closeInspectionPhotoViewer);
 inspectionPhotoViewer.addEventListener('click', event => { if (event.target === inspectionPhotoViewer) closeInspectionPhotoViewer(); });
+inspectionPhotoZoomIn?.addEventListener('click', () => { inspectionPhotoZoom = Math.min(4, inspectionPhotoZoom + .25); renderInspectionPhotoZoom(); });
+inspectionPhotoZoomOut?.addEventListener('click', () => { inspectionPhotoZoom = Math.max(.5, inspectionPhotoZoom - .25); renderInspectionPhotoZoom(); });
+inspectionPhotoZoomReset?.addEventListener('click', () => { inspectionPhotoZoom = 1; renderInspectionPhotoZoom(); });
+inspectionPhotoFullscreen?.addEventListener('click', async () => {
+  try { if (document.fullscreenElement) await document.exitFullscreen(); else await inspectionPhotoViewer.requestFullscreen(); }
+  catch { showToast('Tam ekran bu tarayıcıda açılamadı.'); }
+});
 document.addEventListener('keydown', event => { if (event.key === 'Escape' && !inspectionPhotoViewer.hidden) closeInspectionPhotoViewer(); });
 document.getElementById('saveInspection').addEventListener('click', async () => { const button = document.getElementById('saveInspection'); button.disabled = true; try { await saveSelectedInspection(); } catch (error) { showToast(error.message || 'Checklist kaydedilemedi.'); } finally { button.disabled = !isBedaEditor(); } });
 

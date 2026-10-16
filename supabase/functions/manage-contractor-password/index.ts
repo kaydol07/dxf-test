@@ -20,12 +20,16 @@ function json(body: unknown, status: number, cors: Record<string, string>) {
 
 Deno.serve(async request => {
   const cors = corsHeaders(request.headers.get('Origin'))
-  if (request.method === 'OPTIONS') return new Response('ok', { headers: cors })
-  if (request.method !== 'POST') return json({ error: 'POST is required.' }, 405, cors)
+  try {
+    if (request.method === 'OPTIONS') return new Response('ok', { headers: cors })
+    if (request.method !== 'POST') return json({ error: 'POST is required.' }, 405, cors)
 
   const authorization = request.headers.get('Authorization')
   const supabaseUrl = Deno.env.get('SUPABASE_URL')
-  const publishableKey = Deno.env.get('SUPABASE_ANON_KEY')
+  /* Older Supabase projects expose SUPABASE_ANON_KEY, newer projects expose
+     a publishable key. Accept either so the authenticated caller lookup does
+     not fail after a project-key migration. */
+  const publishableKey = Deno.env.get('SUPABASE_ANON_KEY') || Deno.env.get('SUPABASE_PUBLISHABLE_KEY')
   const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
   if (!authorization || !supabaseUrl || !publishableKey || !serviceRoleKey) return json({ error: 'Kimlik doğrulama yapılandırması eksik.' }, 500, cors)
 
@@ -53,5 +57,9 @@ Deno.serve(async request => {
 
   const { error: updateError } = await admin.auth.admin.updateUserById(targetProfile.user_id, { password })
   if (updateError) return json({ error: 'Şifre güncellenemedi.' }, 500, cors)
-  return json({ ok: true }, 200, cors)
+    return json({ ok: true }, 200, cors)
+  } catch (error) {
+    console.error('manage-contractor-password failed', error)
+    return json({ error: 'Şifre servisi geçici olarak yanıt veremedi. Daha sonra yeniden deneyin.' }, 500, cors)
+  }
 })

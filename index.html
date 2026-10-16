@@ -201,6 +201,7 @@
         <option value="before">ÖNCE / ilk tespit fotoğrafı</option>
         <option value="after">SONRA / düzeltme fotoğrafı</option>
       </select>
+      <div class="inspection-upload-progress" id="inspectionUploadProgress" hidden><span id="inspectionUploadProgressText">Fotoğraf hazırlanıyor…</span><progress id="inspectionUploadProgressValue" max="100" value="0"></progress></div>
       <button class="wide-button primary" id="saveInspection" type="button">CHECKLIST SONUCUNU KAYDET</button>
       <button class="wide-button danger" id="deleteManualInspectionPoint" type="button" hidden>NOKTAYI SİL</button>
       <div class="message" id="inspectionPermissionNotice"></div>
@@ -224,6 +225,12 @@
   </section>
   <section class="inspection-photo-viewer" id="inspectionPhotoViewer" role="dialog" aria-modal="true" aria-label="Denetim fotoğrafı" hidden>
     <button class="inspection-photo-viewer-close" id="inspectionPhotoViewerClose" type="button" aria-label="Fotoğrafı kapat">×</button>
+    <div class="inspection-photo-viewer-tools" aria-label="Fotoğraf araçları">
+      <button id="inspectionPhotoZoomOut" type="button" aria-label="Uzaklaştır">−</button>
+      <button id="inspectionPhotoZoomReset" type="button" aria-label="Gerçek boyuta dön">1:1</button>
+      <button id="inspectionPhotoZoomIn" type="button" aria-label="Yakınlaştır">+</button>
+      <button id="inspectionPhotoFullscreen" type="button">TAM EKRAN</button>
+    </div>
     <figure><img id="inspectionPhotoViewerImage" alt="Denetim fotoğrafı"><figcaption id="inspectionPhotoViewerCaption"></figcaption></figure>
   </section>
   <nav class="toolbar" aria-label="Harita araçları">
@@ -239,8 +246,9 @@
   <script src="https://cdn.jsdelivr.net/npm/@mapbox/togeojson@0.16.2/togeojson.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="./supabase-config.js?v=4"></script>
-  <script src="./inspection-config.js?v=3"></script>
-  <script src="./app.js?v=49"></script>
+  <script src="./inspection-config.js?v=4"></script>
+  <script src="./inspection-rules.js?v=1"></script>
+  <script src="./app.js?v=50"></script>
 </body>
 </html>
 
