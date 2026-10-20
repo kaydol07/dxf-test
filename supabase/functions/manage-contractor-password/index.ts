@@ -4,6 +4,19 @@ const CONTRACTORS = ['ERKSİS', 'ASTAN', 'ASMİN', 'ERBU', 'AZRAM']
 const allowedOrigins = (Deno.env.get('APP_ALLOWED_ORIGINS') || 'http://127.0.0.1:4173,http://localhost:4173,http://127.0.0.1:4174,http://localhost:4174,https://kaydol07.github.io')
   .split(',').map(value => value.trim()).filter(Boolean)
 
+function environmentKey(singleName: string, collectionName: string) {
+  const direct = Deno.env.get(singleName)
+  if (direct) return direct
+  const collection = Deno.env.get(collectionName)
+  if (!collection) return ''
+  try {
+    const parsed = JSON.parse(collection)
+    if (typeof parsed === 'string') return parsed
+    if (Array.isArray(parsed)) return parsed.find(value => typeof value === 'string') || ''
+    return Object.values(parsed).find(value => typeof value === 'string') as string || ''
+  } catch { return collection }
+}
+
 function corsHeaders(origin: string | null) {
   const allowedOrigin = origin && allowedOrigins.includes(origin) ? origin : allowedOrigins[0]
   return {
@@ -26,11 +39,9 @@ Deno.serve(async request => {
 
   const authorization = request.headers.get('Authorization')
   const supabaseUrl = Deno.env.get('SUPABASE_URL')
-  /* Older Supabase projects expose SUPABASE_ANON_KEY, newer projects expose
-     a publishable key. Accept either so the authenticated caller lookup does
-     not fail after a project-key migration. */
-  const publishableKey = Deno.env.get('SUPABASE_ANON_KEY') || Deno.env.get('SUPABASE_PUBLISHABLE_KEY')
-  const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
+  /* Accept both the legacy individual keys and Supabase's current key sets. */
+  const publishableKey = environmentKey('SUPABASE_ANON_KEY', 'SUPABASE_PUBLISHABLE_KEYS')
+  const serviceRoleKey = environmentKey('SUPABASE_SERVICE_ROLE_KEY', 'SUPABASE_SECRET_KEYS')
   if (!authorization || !supabaseUrl || !publishableKey || !serviceRoleKey) return json({ error: 'Kimlik doğrulama yapılandırması eksik.' }, 500, cors)
 
   const callerClient = createClient(supabaseUrl, publishableKey, {
