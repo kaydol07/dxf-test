@@ -21,6 +21,23 @@ function json(body: unknown, status: number, cors: Record<string, string>) {
   return new Response(JSON.stringify(body), { status, headers: { ...cors, 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' } })
 }
 
+function publishableKeyFromEnvironment(): string {
+  const collection = Deno.env.get('SUPABASE_PUBLISHABLE_KEYS')
+  if (collection) {
+    try {
+      const keys: unknown = JSON.parse(collection)
+      if (keys && typeof keys === 'object' && !Array.isArray(keys)) {
+        const record = keys as Record<string, unknown>
+        if (typeof record.default === 'string' && record.default.trim()) return record.default.trim()
+      }
+      if (typeof keys === 'string' && keys.trim()) return keys.trim()
+    } catch {
+      /* Use the individual key variables rather than malformed JSON. */
+    }
+  }
+  return Deno.env.get('SUPABASE_PUBLISHABLE_KEY')?.trim() || Deno.env.get('SUPABASE_ANON_KEY')?.trim() || ''
+}
+
 function validDiskPath(value: unknown, role: string, contractorCode: string | null): value is string {
   if (typeof value !== 'string' || !value.startsWith(`${ROOT}/`) || value.includes('..')
       || value.includes('\\') || value.length >= 1024) return false
@@ -63,16 +80,7 @@ Deno.serve(async request => {
 
   const authorization = request.headers.get('Authorization')
   const supabaseUrl = Deno.env.get('SUPABASE_URL')
-  let publishableKey = Deno.env.get('SUPABASE_ANON_KEY') || ''
-  const publishableKeysJson = Deno.env.get('SUPABASE_PUBLISHABLE_KEYS')
-  if (publishableKeysJson) {
-    try {
-      const keys = JSON.parse(publishableKeysJson)
-      publishableKey = keys.default || Object.values(keys)[0] || publishableKey
-    } catch {
-      return json({ error: 'Supabase publishable key configuration is invalid.' }, 500, cors)
-    }
-  }
+  const publishableKey = publishableKeyFromEnvironment()
   if (!authorization || !supabaseUrl || !publishableKey) return json({ error: 'Authenticated Supabase setup is missing.' }, 401, cors)
 
   const supabase = createClient(supabaseUrl, publishableKey, { global: { headers: { Authorization: authorization } }, auth: { persistSession: false } })

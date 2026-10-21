@@ -1,5 +1,5 @@
 [functions.yandex-projects]
-verify_jwt = true
+verify_jwt = false
 
 [functions.manage-contractor-password]
-verify_jwt = true
+verify_jwt = false

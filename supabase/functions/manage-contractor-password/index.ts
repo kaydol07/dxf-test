@@ -4,17 +4,21 @@ const CONTRACTORS = ['ERKSİS', 'ASTAN', 'ASMİN', 'ERBU', 'AZRAM']
 const allowedOrigins = (Deno.env.get('APP_ALLOWED_ORIGINS') || 'http://127.0.0.1:4173,http://localhost:4173,http://127.0.0.1:4174,http://localhost:4174,https://kaydol07.github.io')
   .split(',').map(value => value.trim()).filter(Boolean)
 
-function environmentKey(singleName: string, collectionName: string) {
-  const direct = Deno.env.get(singleName)
-  if (direct) return direct
+function environmentKey(collectionName: string, singleName: string, legacyName: string): string {
   const collection = Deno.env.get(collectionName)
-  if (!collection) return ''
-  try {
-    const parsed = JSON.parse(collection)
-    if (typeof parsed === 'string') return parsed
-    if (Array.isArray(parsed)) return parsed.find(value => typeof value === 'string') || ''
-    return Object.values(parsed).find(value => typeof value === 'string') as string || ''
-  } catch { return collection }
+  if (collection) {
+    try {
+      const parsed: unknown = JSON.parse(collection)
+      if (typeof parsed === 'string' && parsed.trim()) return parsed.trim()
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        const defaultKey = (parsed as Record<string, unknown>).default
+        if (typeof defaultKey === 'string' && defaultKey.trim()) return defaultKey.trim()
+      }
+    } catch {
+      // Fall back to an individual key instead of treating malformed JSON as a key.
+    }
+  }
+  return Deno.env.get(singleName)?.trim() || Deno.env.get(legacyName)?.trim() || ''
 }
 
 function corsHeaders(origin: string | null) {
@@ -39,9 +43,10 @@ Deno.serve(async request => {
 
   const authorization = request.headers.get('Authorization')
   const supabaseUrl = Deno.env.get('SUPABASE_URL')
-  /* Accept both the legacy individual keys and Supabase's current key sets. */
-  const publishableKey = environmentKey('SUPABASE_ANON_KEY', 'SUPABASE_PUBLISHABLE_KEYS')
-  const serviceRoleKey = environmentKey('SUPABASE_SERVICE_ROLE_KEY', 'SUPABASE_SECRET_KEYS')
+  /* Support current key collections and older individual key names. The
+     current collection gets priority so legacy keys can be retired safely. */
+  const publishableKey = environmentKey('SUPABASE_PUBLISHABLE_KEYS', 'SUPABASE_PUBLISHABLE_KEY', 'SUPABASE_ANON_KEY')
+  const serviceRoleKey = environmentKey('SUPABASE_SECRET_KEYS', 'SUPABASE_SECRET_KEY', 'SUPABASE_SERVICE_ROLE_KEY')
   if (!authorization || !supabaseUrl || !publishableKey || !serviceRoleKey) return json({ error: 'Kimlik doğrulama yapılandırması eksik.' }, 500, cors)
 
   const callerClient = createClient(supabaseUrl, publishableKey, {
@@ -53,7 +58,7 @@ Deno.serve(async request => {
   const admin = createClient(supabaseUrl, serviceRoleKey, { auth: { persistSession: false, autoRefreshToken: false } })
   const { data: callerProfile, error: profileError } = await admin.from('user_profiles')
     .select('role').eq('user_id', callerData.user.id).maybeSingle()
-  if (profileError || callerProfile?.role !== 'beda') return json({ error: 'Bu işlem yalnızca BEDA hesabına açıktır.' }, 403, cors)
+  if (profileError || String(callerProfile?.role || '').trim().toLowerCase() !== 'beda') return json({ error: 'Bu işlem yalnızca BEDA hesabına açıktır.' }, 403, cors)
 
   let payload: { contractorCode?: unknown, password?: unknown }
   try { payload = await request.json() } catch { return json({ error: 'Geçersiz istek.' }, 400, cors) }

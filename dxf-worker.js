@@ -177,6 +177,8 @@ function inspectionCandidates(dxf, project, intervalMeters = 5) {
   /* The quotation mark is part of the pole type in these drawings, for
      example G-K3". Remove only the G- CAD prefix when presenting it. */
   const cleanPoleType = value => String(value || '').trim().replace(/^G\s*[-–—]\s*/i, '').replace(/[“”]/g, '"').replace(/·/g, '').replace(/\s+/g, '');
+  const poleLayer = value => /(?:D[Iİ]REK|POLE)/i.test(String(value || ''));
+  const poleBlock = value => /(?:D[Iİ]REK|POLE)/i.test(String(value || ''));
   const lightingLabelText = value => /^AD1(?:[\s._-]*\d+)?(?:\b|$)/i.test(String(value || '').trim());
   const sdkLabelText = value => /^GBOX(?:\b|$)/i.test(String(value || '').trim());
   const newPoleBlock = value => /(?:YEN[Iİ]|NEW).*(?:D[Iİ]REK|POLE)|(?:D[Iİ]REK|POLE).*(?:YEN[Iİ]|NEW)/i.test(String(value || ''));
@@ -206,7 +208,7 @@ function inspectionCandidates(dxf, project, intervalMeters = 5) {
     return Math.hypot(north, east);
   };
   const interpolate = (left, right, fraction) => [left[0] + (right[0] - left[0]) * fraction, left[1] + (right[1] - left[1]) * fraction];
-  const poleSymbols = [], poleLabels = [], assetSymbols = [], assetLabels = [], transpositionLabels = [];
+  const poleSymbols = [], referencePoleSymbols = [], poleLabels = [], assetSymbols = [], assetLabels = [], transpositionLabels = [];
   for (let index = 0; index < (dxf.entities || []).length && candidates.length < maximum; index++) {
     const entity = dxf.entities[index] || {}, type = String(entity.type || '').toUpperCase();
     const layer = String(entity.layer || ''), name = String(entity.name || '');
@@ -218,14 +220,31 @@ function inspectionCandidates(dxf, project, intervalMeters = 5) {
         && ((['TEXT', 'MTEXT', 'ATTRIB'].includes(type) && transposition.test(text)) || (type === 'INSERT' && transposition.test(name)))) {
       transpositionLabels.push({ entity, type, layer, name, text, raw, index });
     }
-    if (newPoleLayer.test(layer) && raw && Number.isFinite(raw.x) && Number.isFinite(raw.y)) {
+    const hasPoint = raw && Number.isFinite(raw.x) && Number.isFinite(raw.y);
+    const isNewPoleSymbol = hasPoint && newPoleLayer.test(layer)
+      && ((type === 'INSERT' && newPoleBlock(name)) || type === 'POINT' || (type === 'TEXT' && poleSymbolText(text)));
+    const isReferencePoleSymbol = hasPoint && ((type === 'INSERT' && poleBlock(name))
+      || (poleLayer(layer) && (type === 'POINT' || (type === 'TEXT' && poleSymbolText(text)))));
+    if (isReferencePoleSymbol || isNewPoleSymbol) {
+      const symbol = { entity, type, layer, name, text, raw, index };
+      referencePoleSymbols.push(symbol);
+      if (isNewPoleSymbol) {
+        poleSymbols.push(symbol);
+        continue;
+      }
+    }
+    /* Text annotations are often kept on a separate CAD layer. They may
+       enrich a verified new pole, but can never create a marker by themselves. */
+    if (hasPoint && ['TEXT', 'MTEXT', 'ATTRIB'].includes(type) && text
+        && !lightingLabelText(text) && !sdkLabelText(text)
+        && (newPoleLayer.test(layer) || poleNumberText(text) || poleTypeText(text))) {
+      poleLabels.push({ entity, type, layer, text, raw });
+      continue;
+    }
+    if (newPoleLayer.test(layer) && hasPoint) {
       const isSymbol = (type === 'INSERT' && newPoleBlock(name)) || type === 'POINT' || (type === 'TEXT' && poleSymbolText(text));
       if (isSymbol) {
         poleSymbols.push({ entity, type, layer, name, text, raw, index });
-        continue;
-      }
-      if (['TEXT', 'MTEXT', 'ATTRIB'].includes(type) && text) {
-        poleLabels.push({ entity, type, layer, text, raw });
         continue;
       }
     }
@@ -248,15 +267,22 @@ function inspectionCandidates(dxf, project, intervalMeters = 5) {
   for (const symbol of poleSymbols) {
     if (!uniqueSymbols.some(existing => rawDistance(existing.raw, symbol.raw) <= 0.02)) uniqueSymbols.push(symbol);
   }
+  /* Existing pole glyphs are association-only references. They prevent a
+     nearby existing pole label from being attached to a new pole, while no
+     existing pole is emitted as an inspection candidate. */
+  const uniqueReferenceSymbols = [];
+  for (const symbol of referencePoleSymbols) {
+    if (!uniqueReferenceSymbols.some(existing => rawDistance(existing.raw, symbol.raw) <= 0.02)) uniqueReferenceSymbols.push(symbol);
+  }
   /* A drawing can contain more than one glyph character next to one pole.
      Bind each clearly formatted pole number to its nearest glyph, then emit
      that glyph only once. This prevents q/4/5 components becoming duplicates. */
   const assignedSymbols = new Set();
   for (const label of poleLabels.filter(label => poleNumberText(label.text))) {
-    const distances = uniqueSymbols.map(symbol => rawDistance(symbol.raw, label.raw));
+    const distances = uniqueReferenceSymbols.map(symbol => rawDistance(symbol.raw, label.raw));
     const nearest = Math.min(...distances);
     if (!Number.isFinite(nearest) || nearest > 14 || distances.filter(value => Math.abs(value - nearest) <= 0.02).length !== 1) continue;
-    assignedSymbols.add(uniqueSymbols[distances.indexOf(nearest)]);
+    assignedSymbols.add(uniqueReferenceSymbols[distances.indexOf(nearest)]);
   }
   const candidateSymbols = uniqueSymbols.filter(symbol => assignedSymbols.has(symbol) || symbol.type === 'INSERT' || symbol.type === 'POINT');
   for (const symbol of candidateSymbols) {
@@ -264,7 +290,7 @@ function inspectionCandidates(dxf, project, intervalMeters = 5) {
     const labels = poleLabels.filter(label => {
       const distance = rawDistance(symbol.raw, label.raw);
       if (distance > 14) return false;
-      const distances = uniqueSymbols.map(other => rawDistance(other.raw, label.raw));
+      const distances = uniqueReferenceSymbols.map(other => rawDistance(other.raw, label.raw));
       const nearest = Math.min(...distances);
       /* A label is associated only with one unambiguous nearest symbol. */
       return Math.abs(distance - nearest) <= 0.02 && distances.filter(value => Math.abs(value - nearest) <= 0.02).length === 1;

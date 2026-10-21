@@ -13,7 +13,31 @@ const bases={
 bases.satellite.addTo(map);
 let labelLayer=L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager_only_labels/{z}/{x}/{y}{r}.png',{attribution:'',maxNativeZoom:19,maxZoom:MAP_MAX_ZOOM,pane:'overlayPane'}).addTo(map);
 const panels=['projectPanel','inspectionPanel','locationPanel','accountPanel','addressPanel','parcelPanel'];
-function keepMapVisible(){if(canViewInspectionData()){if(!map.hasLayer(inspectionMarkerLayer))inspectionMarkerLayer.addTo(map)}else{inspectionMarkerLayer.clearLayers();if(map.hasLayer(inspectionMarkerLayer))map.removeLayer(inspectionMarkerLayer)}}
+let standardBaseName='satellite';
+function refreshMapViewport(){
+  requestAnimationFrame(()=>{
+    map.invalidateSize({pan:false});
+    cadCanvasLayers.forEach(item=>{
+      if(!item?.layer||!map.hasLayer(item.layer))return;
+      item.layer._reset?.();item.layer._scheduleDraw?.();
+    });
+    if(googleMap&&window.google?.maps){google.maps.event.trigger(googleMap,'resize');googleMapSync?.();}
+  });
+}
+function ensureStandardBaseMap(){
+  if(document.body.classList.contains('google-map-active'))return;
+  const standardLayer=bases[standardBaseName]||bases.satellite;
+  if(!map.hasLayer(standardLayer)){
+    Object.values(bases).forEach(layer=>map.removeLayer(layer));
+    standardLayer.addTo(map);
+  }
+  if(document.getElementById('labelsToggle').checked&&!map.hasLayer(labelLayer))labelLayer.addTo(map);
+}
+function keepMapVisible(){
+  if(!document.body.classList.contains('google-map-active'))ensureStandardBaseMap();
+  if(canViewInspectionData()){if(!map.hasLayer(inspectionMarkerLayer))inspectionMarkerLayer.addTo(map)}else{inspectionMarkerLayer.clearLayers();if(map.hasLayer(inspectionMarkerLayer))map.removeLayer(inspectionMarkerLayer)}
+  refreshMapViewport();
+}
 function openPanel(id){panels.forEach(p=>document.getElementById(p).hidden=p!==id||!document.getElementById(p).hidden);document.querySelectorAll('.toolbar [data-panel]').forEach(b=>b.classList.toggle('active',b.dataset.panel===id&&!document.getElementById(id).hidden));keepMapVisible();}
 document.querySelectorAll('.toolbar [data-panel]').forEach(button=>button.addEventListener('click',()=>{const id=button.dataset.panel;const wasClosed=document.getElementById(id).hidden;if(fieldPickActive)setFieldPick(false);openPanel(id);if(id==='locationPanel'&&wasClosed)startLocationTracking();if(id==='parcelPanel')setParcelPick(wasClosed)}));
 document.querySelectorAll('.close').forEach(button=>button.addEventListener('click',()=>{button.closest('.drawer').hidden=true;document.querySelectorAll('.toolbar button').forEach(b=>b.classList.remove('active'));keepMapVisible();}));
@@ -22,20 +46,25 @@ layerToggle.addEventListener('click',()=>layersPanel.hidden=!layersPanel.hidden)
 const googleMapBase=document.createElement('div');
 googleMapBase.id='googleMapBase';googleMapBase.hidden=true;document.getElementById('map').append(googleMapBase);
 let googleMap=null,googleMapsApiPromise=null,googleMapSync=null;
+let googleMapFallbackTimer=null;
 function disableGoogleMap(){
+  if(googleMapFallbackTimer){clearTimeout(googleMapFallbackTimer);googleMapFallbackTimer=null}
   if(googleMapSync){map.off('move zoom moveend zoomend',googleMapSync);googleMapSync=null}
-  googleMap=null;googleMapBase.replaceChildren();googleMapBase.hidden=true;
+  googleMap=null;googleMapBase.replaceChildren();googleMapBase.style.visibility='';googleMapBase.hidden=true;
   document.body.classList.remove('google-map-active');
   document.getElementById('labelsToggle').disabled=false;
   zoomControl.getContainer().hidden=false;
   map.attributionControl.addTo(map);
 }
 function setStandardBase(name){
+  standardBaseName=bases[name]?name:'satellite';
   disableGoogleMap();Object.values(bases).forEach(layer=>map.removeLayer(layer));
-  bases[name].addTo(map);
+  bases[standardBaseName].addTo(map);
   if(document.getElementById('labelsToggle').checked)labelLayer.addTo(map);
-  document.querySelector(`input[name="base"][value="${name}"]`).checked=true;
+  document.querySelector(`input[name="base"][value="${standardBaseName}"]`).checked=true;
+  refreshMapViewport();
 }
+function restoreStandardBaseMap(){disableGoogleMap();ensureStandardBaseMap();refreshMapViewport();}
 document.querySelectorAll('input[name="base"]').forEach(r=>r.addEventListener('change',()=>setStandardBase(r.value)));
 document.getElementById('labelsToggle').addEventListener('change',e=>{
   if(document.body.classList.contains('google-map-active'))return;
@@ -63,16 +92,29 @@ async function enableGoogleSatellite(){
   input.value='';button.disabled=true;status.textContent='Google Uydu yükleniyor…';
   try{
     await loadGoogleMapsApi(key);
-    setStandardBase('satellite');map.removeLayer(bases.satellite);
+    setStandardBase('satellite');
     if(map.hasLayer(labelLayer))map.removeLayer(labelLayer);
     document.getElementById('labelsToggle').disabled=true;
     map.attributionControl.remove();zoomControl.getContainer().hidden=true;
-    googleMapBase.hidden=false;document.body.classList.add('google-map-active');
+    /* Keep the proven Esri layer visible until Google returns its first tiles.
+       A rejected key, quota issue or blocked request must never leave a black
+       rectangle over the DXF and control markers. */
+    googleMapBase.hidden=false;googleMapBase.style.visibility='hidden';document.body.classList.add('google-map-active');
     googleMap=new google.maps.Map(googleMapBase,{center:map.getCenter(),zoom:Math.min(map.getZoom(),MAP_MAX_ZOOM),mapTypeId:'satellite',disableDefaultUI:true,gestureHandling:'none',keyboardShortcuts:false,clickableIcons:false,maxZoom:MAP_MAX_ZOOM});
     /* Synchronise while Leaflet is moving, not only after it stops. This
        prevents the Google base and DXF overlay appearing to drift apart. */
     googleMapSync=()=>googleMap?.moveCamera({center:map.getCenter(),zoom:Math.min(map.getZoom(),MAP_MAX_ZOOM)});
     map.on('move zoom moveend zoomend',googleMapSync);
+    google.maps.event.addListenerOnce(googleMap,'tilesloaded',()=>{
+      googleMapBase.style.visibility='';
+      if(googleMapFallbackTimer){clearTimeout(googleMapFallbackTimer);googleMapFallbackTimer=null}
+    });
+    googleMapFallbackTimer=setTimeout(()=>{
+      if(!googleMap)return;
+      restoreStandardBaseMap();
+      status.textContent='Google Uydu zamanında yanıt vermedi. Esri uydu altlığına dönüldü.';
+      showToast('Google Uydu açılamadı; Esri uydu altlığı kullanılıyor.');
+    },15000);
     layersPanel.hidden=true;
     status.textContent='Google Uydu açık. Anahtar yalnızca bu sekmenin belleğinde kullanılıyor; sayfayı yenileyince yeniden girmeniz gerekir.';
   }catch(error){
@@ -179,6 +221,9 @@ document.getElementById('fileInput').addEventListener('change',async e=>{
   if(dxfFiles.length){
     const oldProjectId=activeProjectId;
     const identity = await resolveRawProjectIdentity(dxfFiles[0]);
+    /* Opening a new drawing must not keep the previous CAD canvas or its
+       in-memory inspection candidates under the new project identity. */
+    unloadDisplayedProject();
     setActiveProject(dxfFiles[0].name.replace(/\.dxf$/i,''), identity.id, identity);
     await moveProjectRecords(oldProjectId,activeProjectId,activeProjectName);
   }
@@ -191,7 +236,7 @@ document.getElementById('fileInput').addEventListener('change',async e=>{
   loadedFiles.textContent=done.join(' · ');if(done.some(x=>x.includes('nesne')))showToast('Dosyalar haritaya eklendi. Katmanları sol panelden açıp kapatabilirsin.');if(dxfFiles.length)refreshFieldRecords();e.target.value='';
 });
 document.getElementById('allLayers').addEventListener('change',e=>{for(const item of importedLayers){const c=item.row.querySelector('input');c.checked=e.target.checked;if(e.target.checked)item.layer.addTo(map);else map.removeLayer(item.layer)}});
-document.getElementById('clearMap').addEventListener('click',()=>{for(const item of importedLayers){map.removeLayer(item.layer);item.row.remove()}importedLayers.length=0;map.eachLayer(l=>{if(l!==bases.satellite&&l!==bases.street&&l!==bases.dark&&l!==bases.light&&l!==labelLayer&&l!==locationMarker&&l!==locationAccuracy&&l!==fieldMarkerLayer&&l!==inspectionMarkerLayer)map.removeLayer(l)});inspectionMarkerLayer.clearLayers();if(fieldDraftMarker){map.removeLayer(fieldDraftMarker);fieldDraftMarker=null}fieldDraftLocation=null;fieldLocationStatus.textContent='Konum seçilmedi.';if(parcelRequest)parcelRequest.abort();parcelLayer=null;parcelResult.hidden=true;setParcelPick(false);cadLayers.innerHTML='<div class="message">DXF yüklendiğinde katmanlar burada görünür.</div>';loadedFiles.textContent='Henüz dosya yüklenmedi';document.getElementById('allLayers').checked=true;showToast('Harita üzerindeki işaretler temizlendi.')});
+document.getElementById('clearMap').addEventListener('click',()=>{for(const item of importedLayers){map.removeLayer(item.layer);item.row.remove()}importedLayers.length=0;map.eachLayer(l=>{if(l!==bases.satellite&&l!==bases.street&&l!==bases.dark&&l!==bases.light&&l!==labelLayer&&l!==locationMarker&&l!==locationAccuracy&&l!==fieldMarkerLayer&&l!==inspectionMarkerLayer)map.removeLayer(l)});inspectionMarkerLayer.clearLayers();if(fieldDraftMarker){map.removeLayer(fieldDraftMarker);fieldDraftMarker=null}fieldDraftLocation=null;fieldLocationStatus.textContent='Konum seçilmedi.';if(parcelRequest)parcelRequest.abort();parcelLayer=null;parcelResult.hidden=true;setParcelPick(false);cadLayers.innerHTML='<div class="message">DXF yüklendiğinde katmanlar burada görünür.</div>';loadedFiles.textContent='Henüz dosya yüklenmedi';document.getElementById('allLayers').checked=true;restoreStandardBaseMap();showToast('Harita üzerindeki işaretler temizlendi.')});
 document.querySelectorAll('[data-datum]').forEach(b=>b.addEventListener('click',()=>showToast('Koordinat sistemi: '+b.dataset.datum)));
 document.getElementById('printButton')?.addEventListener('click',()=>window.print());
 
@@ -388,7 +433,7 @@ async function parseDxf(file, options = {}) {
   };
   try {
     const buffer = await file.arrayBuffer();
-    worker = new Worker(new URL('./dxf-worker.js?v=12', document.baseURI));
+    worker = new Worker(new URL('./dxf-worker.js?v=13', document.baseURI));
     const result = await new Promise((resolve, reject) => {
       const cancel = () => { if (settled) return; settled = true; reject(new Error('DXF yüklemesi iptal edildi.')); };
       activeDxfJobs.set(worker, cancel);
@@ -496,6 +541,7 @@ let inspectionPickType = null;
 let inspectionFilter = 'all';
 let selectedInspectionTarget = null;
 let inspectionState = { projectId: null, elements: new Map(), points: [], results: [], nonconformities: [], events: [], attachments: [], localOnly: false };
+let inspectionRefreshRevision = 0;
 const DEMO_ROLES = ['beda', 'aedas', 'contractor'];
 const supabaseConfig = window.DXF_SUPABASE_CONFIG || {};
 const backendConfigured = Boolean(supabaseConfig.url && supabaseConfig.publishableKey);
@@ -513,7 +559,8 @@ document.getElementById('authGate').hidden = true;
 let demoRole = DEMO_ROLES.includes(localStorage.getItem('dxf-demo-role')) ? localStorage.getItem('dxf-demo-role') : 'beda';
 let demoContractor = FIELD_CONTRACTORS.includes(normalizeContractorCode(localStorage.getItem('dxf-demo-contractor'))) ? normalizeContractorCode(localStorage.getItem('dxf-demo-contractor')) : FIELD_CONTRACTORS[0];
 let authenticatedProfile = null, authenticatedSession = null;
-function activeRole() { return backendConfigured ? authenticatedProfile?.role || '' : demoRole; }
+function normalizeRole(value) { return String(value || '').trim().toLocaleLowerCase('tr-TR'); }
+function activeRole() { return backendConfigured ? normalizeRole(authenticatedProfile?.role) : demoRole; }
 function isBedaEditor() { return activeRole() === 'beda'; }
 function canOpenProjectFiles() { return backendConfigured ? Boolean(authenticatedProfile) : Boolean(activeRole()); }
 function canViewInspectionData() { return Boolean(authenticatedProfile); }
@@ -596,8 +643,9 @@ async function applyAuthenticationSession(session) {
   const { data, error } = await supabaseClient.from('user_profiles')
     .select('user_id,display_name,role,contractor_code').eq('user_id', session.user.id).maybeSingle();
   if (revision !== authApplyRevision) return;
-  if (error || !data || !['beda', 'aedas', 'contractor'].includes(data.role)
-      || (data.role === 'contractor' && !FIELD_CONTRACTORS.includes(data.contractor_code))) {
+  const profile = data ? { ...data, role: normalizeRole(data.role), contractor_code: normalizeContractorCode(data.contractor_code || '') } : null;
+  if (error || !profile || !['beda', 'aedas', 'contractor'].includes(profile.role)
+      || (profile.role === 'contractor' && !FIELD_CONTRACTORS.includes(profile.contractor_code))) {
     if (previousUserId) unloadDisplayedProject();
     document.body.classList.remove('auth-required');
     document.getElementById('authGate').hidden = false;
@@ -608,8 +656,8 @@ async function applyAuthenticationSession(session) {
     await refreshFieldRecords();
     return;
   }
-  if (previousUserId && previousUserId !== data.user_id) unloadDisplayedProject();
-  authenticatedProfile = data;
+  if (previousUserId && previousUserId !== profile.user_id) unloadDisplayedProject();
+  authenticatedProfile = profile;
   document.body.classList.remove('auth-required');
   document.getElementById('authGate').hidden = true;
   updateLoginToolbar();
@@ -653,12 +701,24 @@ async function updateContractorPassword() {
   if (password !== contractorConfirmPassword.value) { contractorPasswordMessage.textContent = 'Yeni şifreler aynı değil.'; return; }
   contractorPasswordSave.disabled = true; contractorPasswordMessage.textContent = 'Şifre güncelleniyor…';
   try {
-    const { data, error } = await supabaseClient.functions.invoke('manage-contractor-password', { body: { contractorCode, password } });
+    const { data: sessionData, error: sessionError } = await supabaseClient.auth.getSession();
+    if (sessionError || !sessionData?.session) throw new Error('Oturum doğrulanamadı. Hesaptan yeniden giriş yapıp tekrar dene.');
+    let session = sessionData.session;
+    if (session.expires_at && session.expires_at * 1000 < Date.now() + 60_000) {
+      const { data: refreshed, error: refreshError } = await supabaseClient.auth.refreshSession();
+      if (refreshError || !refreshed?.session) throw new Error('Oturum süresi yenilenemedi. Hesaptan yeniden giriş yapıp tekrar dene.');
+      session = refreshed.session;
+    }
+    if (session.user.id !== authenticatedProfile.user_id) throw new Error('Oturum değişti. Hesaptan yeniden giriş yapıp tekrar dene.');
+    authenticatedSession = session;
+    const { data, error } = await supabaseClient.functions.invoke('manage-contractor-password', {
+      headers: { Authorization: `Bearer ${session.access_token}` }, body: { contractorCode, password }
+    });
     if (error) {
       let detail = '';
       try { const body = await error.context?.clone?.().json(); detail = body?.error ? String(body.error) : ''; } catch {}
       if (/Failed to send a request|fetch/i.test(error.message || '')) {
-        throw new Error('Şifre servisine ulaşılamadı. Supabase’te manage-contractor-password fonksiyonunun dağıtıldığını ve APP_ALLOWED_ORIGINS içinde https://kaydol07.github.io adresinin bulunduğunu kontrol edin.');
+        throw new Error('Şifre servisine ulaşılamadı. İnternet bağlantını kontrol edip Hesap bölümünden yeniden giriş yaptıktan sonra tekrar dene.');
       }
       throw new Error(detail || error.message || 'Şifre güncellenemedi.');
     }
@@ -877,8 +937,11 @@ async function moveProjectRecords(fromId, toId, projectName) {
   for (const record of records) await fieldRequest('readwrite', store => store.put({ ...record, projectId: toId, projectName }));
 }
 function setActiveProject(name, id, metadata = {}) {
-  activeProjectName = String(name || 'Saha Denemesi').replace(/\.dxf$/i, '').trim() || 'Saha Denemesi';
-  activeProjectId = id || 'local-' + activeProjectName.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 70);
+  const nextProjectName = String(name || 'Saha Denemesi').replace(/\.dxf$/i, '').trim() || 'Saha Denemesi';
+  const nextProjectId = id || 'local-' + nextProjectName.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 70);
+  const projectChanged = activeProjectId !== nextProjectId;
+  activeProjectName = nextProjectName;
+  activeProjectId = nextProjectId;
   const rememberedContractor = normalizeContractorCode(localStorage.getItem(projectContractorStorageKey(activeProjectId)) || '');
   const contractorCode = normalizeContractorCode(metadata.contractorCode || metadata.contractor_code || yandexFolderForPath(metadata.sourcePath || '')?.replace('disk:/PROJELER/', '') || rememberedContractor || '');
   activeProjectMeta = {
@@ -892,6 +955,14 @@ function setActiveProject(name, id, metadata = {}) {
   fieldProjectLabel.textContent = 'Proje: ' + activeProjectName;
   const inspectionProjectLabel = document.getElementById('inspectionProjectLabel');
   if (inspectionProjectLabel) inspectionProjectLabel.textContent = 'Proje: ' + activeProjectName;
+  /* Clear the previous project immediately. The remote refresh below may
+     finish after DXF parsing; its response is merged with fresh candidates. */
+  if (projectChanged || inspectionState.projectId !== activeProjectId) {
+    inspectionRefreshRevision++;
+    applyInspectionState(emptyInspectionState(activeProjectId));
+    selectedInspectionTarget = null;
+    inspectionPickType = null;
+  }
   if (typeof applyDemoRole === 'function') applyDemoRole();
   if (typeof refreshInspectionData === 'function') void refreshInspectionData();
 }
@@ -987,6 +1058,7 @@ function unloadDisplayedProject() {
   inspectionMarkerLayer.clearLayers();
   selectedInspectionTarget = null;
   inspectionPickType = null;
+  restoreStandardBaseMap();
 }
 async function openSharedProject() {
   if (!backendEnabled || !authenticatedProfile) return;
@@ -2146,10 +2218,12 @@ function projectRowsToInspection(data) {
 }
 async function refreshInspectionData() {
   const requestedProject = activeProjectId;
+  const requestRevision = ++inspectionRefreshRevision;
+  const inMemoryElements = () => inspectionState.projectId === requestedProject ? Array.from(inspectionState.elements.values()) : [];
   if (backendEnabled && !authenticatedProfile) {
+    if (requestedProject !== activeProjectId || requestRevision !== inspectionRefreshRevision) return;
     applyInspectionState(emptyInspectionState(requestedProject)); selectedInspectionTarget = null; renderInspectionDashboard(); return;
   }
-  const existingElements = inspectionState.projectId === requestedProject ? Array.from(inspectionState.elements.values()) : [];
   try {
     if (backendEnabled && authenticatedProfile) {
       const responses = await Promise.all([
@@ -2160,19 +2234,24 @@ async function refreshInspectionData() {
         supabaseClient.from('nonconformity_events').select('*').eq('project_id', requestedProject),
         supabaseClient.from('inspection_attachments').select('*').eq('project_id', requestedProject)
       ]);
-      if (requestedProject !== activeProjectId) return;
+      if (requestedProject !== activeProjectId || requestRevision !== inspectionRefreshRevision) return;
       if (responses.every(response => !response.error)) {
         const remote = projectRowsToInspection({ elements: responses[0].data, points: responses[1].data, results: responses[2].data, nonconformities: responses[3].data, events: responses[4].data, attachments: responses[5].data });
-        for (const element of existingElements) if (!remote.elements.some(item => item.elementId === element.elementId)) remote.elements.push(element);
+        /* DXF parsing can finish while this remote request is in flight.
+           Preserve those freshly detected elements instead of replacing them
+           with the earlier remote snapshot. */
+        for (const element of inMemoryElements()) if (!remote.elements.some(item => item.elementId === element.elementId)) remote.elements.push(element);
         applyInspectionState(remote); renderInspectionDashboard(); void migrateLegacyPoleBindings(remote.elements.filter(element => element.metadata?.candidateVersion === 2)); return;
       }
     }
     const local = await inspectionRequest('readonly', store => store.get(requestedProject));
-    if (requestedProject !== activeProjectId) return;
-    applyInspectionState({ ...(local || {}), elements: [...(local?.elements || []), ...existingElements.filter(item => !(local?.elements || []).some(saved => saved.elementId === item.elementId))], localOnly: true });
+    if (requestedProject !== activeProjectId || requestRevision !== inspectionRefreshRevision) return;
+    const retained = inMemoryElements();
+    applyInspectionState({ ...(local || {}), elements: [...(local?.elements || []), ...retained.filter(item => !(local?.elements || []).some(saved => saved.elementId === item.elementId))], localOnly: true });
   } catch (error) {
+    if (requestedProject !== activeProjectId || requestRevision !== inspectionRefreshRevision) return;
     console.warn('Denetim verisi yerel yedekten açıldı:', error);
-    applyInspectionState({ elements: existingElements, localOnly: true });
+    applyInspectionState({ elements: inMemoryElements(), localOnly: true });
   }
   renderInspectionDashboard();
   void migrateLegacyPoleBindings(Array.from(inspectionState.elements.values()).filter(element => element.metadata?.candidateVersion === 2));
