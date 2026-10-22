@@ -29,6 +29,8 @@ function publishableKeyFromEnvironment(): string {
       if (keys && typeof keys === 'object' && !Array.isArray(keys)) {
         const record = keys as Record<string, unknown>
         if (typeof record.default === 'string' && record.default.trim()) return record.default.trim()
+        const collectionKey = Object.values(record).find(value => typeof value === 'string' && value.trim())
+        if (typeof collectionKey === 'string') return collectionKey.trim()
       }
       if (typeof keys === 'string' && keys.trim()) return keys.trim()
     } catch {

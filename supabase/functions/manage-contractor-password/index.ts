@@ -11,8 +11,15 @@ function environmentKey(collectionName: string, singleName: string, legacyName: 
       const parsed: unknown = JSON.parse(collection)
       if (typeof parsed === 'string' && parsed.trim()) return parsed.trim()
       if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-        const defaultKey = (parsed as Record<string, unknown>).default
+        const record = parsed as Record<string, unknown>
+        const defaultKey = record.default
         if (typeof defaultKey === 'string' && defaultKey.trim()) return defaultKey.trim()
+        /* Supabase's current JSON dictionary is keyed by API-key id, so it
+           may not have a literal `default` entry. This collection is already
+           scoped to one key class, therefore selecting one non-empty value
+           cannot mix a publishable key with a secret key. */
+        const collectionKey = Object.values(record).find(value => typeof value === 'string' && value.trim())
+        if (typeof collectionKey === 'string') return collectionKey.trim()
       }
     } catch {
       // Fall back to an individual key instead of treating malformed JSON as a key.
